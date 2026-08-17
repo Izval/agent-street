@@ -11,6 +11,7 @@ dist/
 /app/.react-router/
 .cache/
 .wrangler/
+*.tsbuildinfo
 
 # Cloudflare / Vite
 .dev.vars
