@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+build/
+dist/
+.output/
+/app/build/
+/app/.react-router/
+.cache/
+.wrangler/
+
+# Cloudflare / Vite
+.dev.vars
+.dev.vars.*
+wrangler.toml.bak
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.json
+
+# Python (agent-ivl)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.python-version
+
+# Reports artifacts (raw run data)
+reports/runs/
+reports/*.tmp.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/*
+!.vscode/extensions.json
