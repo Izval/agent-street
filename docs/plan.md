@@ -297,4 +297,8 @@ contrato **NonfungiblePositionManager** (`mint`) vía la capacidad de contract-c
    Chain #F0B90B/#0B0E11 + sistema de tokens Binance, dark-first). Razón estratégica: menos fricción de
    adopción para el jurado.
 3. ✅ Par inicial del agente IVL en testnet: **BNB-USDT** (confirmado 17-ago-2026).
+4. ✅ **Framework:** donde el plan dice "Remix", se usa **React Router v8 framework mode** — la
+   continuación oficial de Remix (Remix v2 quedó congelado en `2.17.5`; su framework mode ahora vive
+   bajo `react-router` v8). Mismo modelo (loaders/actions/SSR) y plantilla oficial de Cloudflare.
+   (Confirmado 17-ago-2026.)
 ```

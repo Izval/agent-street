@@ -1,0 +1,14 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "agent-street",
+	"compatibility_date": "2026-08-17",
+	"compatibility_flags": ["nodejs_compat"],
+	"main": "./workers/app.ts",
+	"vars": {
+		// URL base del Worker proxy a 8004scan (workers/8004-proxy).
+		// En prod apúntalo al dominio desplegado del proxy.
+		"PROXY_8004_URL": "http://localhost:8788",
+		// API pública del motor IVL (no requiere secreto).
+		"IVL_API_URL": "https://api.zvlint.com"
+	}
+}
