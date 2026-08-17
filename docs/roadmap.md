@@ -13,6 +13,29 @@
   `api.zvlint.com` (no duplicar código).
 - **De-risk:** asegurar bounties primero (valor casi garantizado); marketplace como upside.
 
+## 0.5. Estado de ejecución — actualizado 17-ago-2026
+> Progreso del build. Lo hecho no se re-litiga; lo pendiente marca el frente.
+
+**✅ Hecho (verificado):**
+- **Repo**: `git init` en `main`; `.gitignore` monorepo; `CLAUDE.md` como guía.
+- **`app/` (marketplace)**: scaffold **React Router v8** (framework mode = sucesor de Remix;
+  Remix v2 congelado en 2.17.5) + Cloudflare Vite plugin + React 19 + Tailwind v4. **Buildea y
+  typechecka limpio.** `DESIGN.md` cableado (tokens CSS dark-first → `@theme` Tailwind). Cliente
+  IVL tipado (`lib/ivl.ts`, formas verificadas contra `api.zvlint.com`). Home SSR con **score IVL en
+  vivo** (flagship BNB-USDT), tabs Agents/Skills, chips de las 4 categorías — **render SSR confirmado**.
+- **`workers/8004-proxy/`**: esqueleto (CORS + KV + rate-limit del patrón third_city), `classify.ts`
+  a 4 categorías, degrada limpio sin API key. **Typechecka.**
+- **`agent-ivl/`**: **Python 3.12.14** (Homebrew) + venv aislado; **`bnbagent-studio 0.0.5` instala
+  limpio** (web3 7.16, eth-account, mcp, boto3, fastapi). CLI = **`bag`** (¡no `bnbagent-studio`!),
+  verificado. `requirements.txt` + `requirements.lock.txt` + `README.md`.
+
+**⬜ Pendiente / bloqueado por credenciales del usuario:**
+- **API key 8004scan Pro** → secret del proxy (`wrangler secret put SCAN_8004_API_KEY`) + confirmar
+  host real (placeholder `api.8004scan.io/dev`) + finalizar mapeo de campos.
+- **Faucet BSC testnet** + wallet (`bag wallet create`) → tx onchain de la Fase 0.
+- **Validación §3.2** (mint v3 con ticks): probar skill PancakeSwap Liquidity de Altana, luego TermiX.
+- Rutas `/category/:id`, `/agent/:id`, `/skill/:id`, `/hire`; cliente del proxy en el front; seed curado.
+
 ## 1. Decisiones ya tomadas (no re-litigar)
 - ✅ Nombre: **Agent-Street**. Repo hermano de `third_city`, aquí en `../agent-street`.
 - ✅ Stack: Remix + Cloudflare (no Next/Vercel).
@@ -27,8 +50,10 @@
 
 ## 3. ⚠ Validación crítica — HACER PRIMERO (días 1–3)
 Antes de invertir en features, confirmar el núcleo de IVL:
-1. **Requisito onchain temprano:** `pip install bnbagent-studio`; faucet BSC testnet; API key **8004scan
-   Pro**; desplegar un agente mínimo que haga **UNA tx onchain** y se registre en 8004scan. → asegura el
+1. **Requisito onchain temprano:** ~~`pip install bnbagent-studio`~~ ✅ **hecho** (Python 3.12 +
+   venv en `agent-ivl/`; CLI **`bag`**). Falta: faucet BSC testnet; API key **8004scan Pro**;
+   desplegar un agente mínimo que haga **UNA tx onchain** y se registre en 8004scan. Flujo con `bag`:
+   `bag init` → `bag wallet create` → `bag erc8004 register` → `bag dev`/`bag deploy`. → asegura el
    requisito duro del hackathon el día 3.
 2. **¿Se puede mintear una posición PancakeSwap v3 con `tickLower/tickUpper` específicos?** Probar
    PRIMERO la skill **PancakeSwap Liquidity** de Altana (https://skills.altana.network) y, si no, el
@@ -74,7 +99,8 @@ Antes de invertir en features, confirmar el núcleo de IVL:
 brief https://www.bnbchain.org/en/blog/build-the-era-build-the-official-bnb-agent-studio-marketplace
 
 **BNB Agent Studio / SDK (base del agente):**
-- Studio: https://www.bnbchain.org/en/bnb-agent-studio · CLI `pip install bnbagent-studio`
+- Studio: https://www.bnbchain.org/en/bnb-agent-studio · `pip install bnbagent-studio` → **CLI `bag`**
+  (v0.0.5, Python 3.12; ver `agent-ivl/README.md`). Comandos: `bag init/wallet/erc8004/dev/deploy/x402`.
 - Launch overview: https://www.bnbchain.org/en/blog/bnb-agent-studio-is-live-on-bnb-chain-ai-agents-from-one-prompt
 - BNBAgent SDK (ERC-8004/8183 + sessions + x402): https://github.com/bnb-chain/bnbagent-sdk
 
