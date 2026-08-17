@@ -25,6 +25,20 @@ agente ERC-8004 y montándolo como flagship del marketplace, **un solo activo at
 Contexto: el usuario compite **solo** y quedó **top-10** en el hackathon BNB anterior (IVL como CMC Skill).
 La meta es maximizar probabilidad de ganar reutilizando IVL de forma agresiva y viéndose **nativo de BNB**.
 
+### Hechos oficiales confirmados (FAQ "Build the Era")
+- **Fechas:** build 5-ago → **9-sep**; luego shortlist top-3 público → Fase 2 (TBA); **ganador anunciado 5-nov**.
+- **Reutilizar código pasado: SÍ (confirmado por el equipo).** Aviso oficial: *un marketplace es muy
+  distinto a un dashboard de agente — planear en consecuencia*.
+- **Main + partner son combinables:** ganar el track principal **no** excluye de los bounties de partners
+  (se juzgan independientemente). → nuestro doble-dip es válido y buscado.
+- **Agent Diversity es requisito, no adorno:** las 4 categorías (rebalancing, grid, yield, health factor)
+  con **igual profundidad**. **Submissions de una sola categoría puntúan mal.** No basta con IVL.
+- **Elegibilidad:** global, solo o equipo, 1 entrada; el marketplace debe estar **público y funcional**
+  durante el judging y **los agentes listados deben estar vivos en BSC**.
+- **Altana:** exige **tx onchain en vivo visibles en el Altana explorer** (testnet cuenta).
+- El **formulario de acceso Pro a la 8004scan API** y los docs/SDKs de partners están en la **pestaña
+  Resources** de la página del hackathon.
+
 ## 2. Qué se construye
 Marketplace donde se **descubren, comparan y contratan** agentes ERC-8004 en BSC. **Dos tabs:**
 - **Agents** — agentes contratables, en 4 categorías: **Rebalancing · Grid · Yield · Health Factor**.
@@ -92,8 +106,43 @@ El plan por fases completo está en `docs/roadmap.md §4`.
   curado — sus BUIDLs están **privados** en DoraHacks (no enumerables), así que no gastar tiempo en
   fuerza bruta (ver `docs/seed-catalog.md`).
 
-## 8. Recursos
-- IVL API `https://api.zvlint.com` · Motor/scripts en `third_city/frontend/src/lib/ivl.ts` y
-  `third_city/skills/ivl/` (`backtest.mjs`, `compare.mjs`, `ivl-lp.mjs` → Agent Advantage Report).
-- 8004scan Dev API (Pro gratis: 500 req/min, 100k/día) · TermiX BSC MCP · BNBAgent SDK
-  (`bnb-chain/bnbagent-sdk`) · BNB Agent Studio (`pip install bnbagent-studio`) · faucet BSC testnet.
+## 8. Enlaces y recursos (verificados en la pestaña Resources oficial, 17-ago-2026)
+
+**Hackathon**
+- Página oficial (registro): https://www.bnbchain.org/en/hackathons/smart-money-era
+- Anuncio / brief: https://www.bnbchain.org/en/blog/build-the-era-build-the-official-bnb-agent-studio-marketplace
+
+**BNB Agent Studio / SDK (base del agente)**
+- BNB Agent Studio: https://www.bnbchain.org/en/bnb-agent-studio · CLI: `pip install bnbagent-studio`
+- Launch overview: https://www.bnbchain.org/en/blog/bnb-agent-studio-is-live-on-bnb-chain-ai-agents-from-one-prompt
+- BNBAgent SDK (Python, ERC-8004 + ERC-8183 + sessions + x402): https://github.com/bnb-chain/bnbagent-sdk
+
+**8004scan by AltLayer — motor de datos del marketplace** (Pro gratis participantes: **500 req/min, 100k/día**)
+- Explorer: https://8004scan.io · **Agentes BSC (chain 56):** https://8004scan.io/agents?chain=56
+- Developer Hub & API: https://8004scan.io/developers
+- **Pro-Tier Upgrade Form** (sacar la API key Pro): https://forms.gle/jQevEPCAacBXaKG79
+- EIP-8004: https://eips.ethereum.org/EIPS/eip-8004
+
+**TermiX** (bounty $6k/$3k/$1k · "marketplace donde agentes contratan agentes")
+- App: https://app.termix.ai · **BSC MCP server** (ejecución onchain, open-source): https://github.com/TermiX-official/bsc-mcp
+
+**PancakeSwap** (bounty 1,000 CAKE)
+- Developer Portal: https://developer.pancakeswap.finance · Docs: https://docs.pancakeswap.finance
+
+**Altana** (Best Built with Altana, 50k XP · exige tx en el Altana explorer)
+- Docs: https://docs.altana.network · SDK + MCP server: https://github.com/altananetwork/altana-sdk
+- Sessions: https://docs.altana.network/concepts/sessions · ERC-8183 SDK: https://docs.altana.network/sdk/erc8183
+- x402 server SDK: https://docs.altana.network/sdk/x402-server
+- **10 skills componibles** en https://skills.altana.network — Aave V3 Lending, Copy Trade, Four.meme
+  Trading, Lista Liquid Staking, **PancakeSwap Liquidity**, PancakeSwap Trading, Token Radar, Venus
+  Lending, Wallet Tracker, x402 API Payments.
+
+**Onchain / testnet**
+- Faucet BSC testnet: https://testnet.bnbchain.org/faucet-smart (o https://www.bnbchain.org/en/testnet-faucet)
+- Brand guidelines BNB (para `DESIGN.md`): https://www.bnbchain.org/en/brand-guidelines
+
+**IVL (nuestro activo, repo hermano `third_city`)**
+- API pública: `https://api.zvlint.com` — `/v1/ivl`, `/v1/ivl/ticks` (rango v3), `/v1/screener`
+- Motor: `third_city/frontend/src/lib/ivl.ts` · Skill + scripts: `third_city/skills/ivl/`
+  (`backtest.mjs`, `compare.mjs`, `ivl-lp.mjs` → Agent Advantage Report)
+- Señal (opcional): CMC — `https://coinmarketcap.com/api/agent`

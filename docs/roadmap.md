@@ -30,10 +30,11 @@ Antes de invertir en features, confirmar el núcleo de IVL:
 1. **Requisito onchain temprano:** `pip install bnbagent-studio`; faucet BSC testnet; API key **8004scan
    Pro**; desplegar un agente mínimo que haga **UNA tx onchain** y se registre en 8004scan. → asegura el
    requisito duro del hackathon el día 3.
-2. **¿Se puede mintear una posición PancakeSwap v3 con `tickLower/tickUpper` específicos?** vía TermiX
-   MCP **o** la skill *PancakeSwap Liquidity*. Es el núcleo de IVL (el API `/v1/ivl/ticks` ya devuelve el
-   rango). **Si ninguno lo soporta → fallback: llamada directa a `NonfungiblePositionManager.mint`** con
-   la capacidad de contract-call del SDK. Resolver esto define el camino de ejecución.
+2. **¿Se puede mintear una posición PancakeSwap v3 con `tickLower/tickUpper` específicos?** Probar
+   PRIMERO la skill **PancakeSwap Liquidity** de Altana (https://skills.altana.network) y, si no, el
+   **TermiX BSC MCP**. Es el núcleo de IVL (el API `/v1/ivl/ticks` ya devuelve el rango). **Si ninguno
+   lo soporta → fallback: llamada directa a `NonfungiblePositionManager.mint`** con la capacidad de
+   contract-call del SDK. Resolver esto define el camino de ejecución.
 
 ## 4. Plan por fases (10 ago → 9 sep, solo)
 | Fase | Días | Entregable | Cubre |
@@ -67,8 +68,36 @@ Antes de invertir en features, confirmar el núcleo de IVL:
 - [ ] **PancakeSwap:** beneficio LP demostrado (fees/IL vs baseline).
 - [ ] **Altana (opcional, 50k XP):** sesión con allowlist + spend cap + expiry en Keystore, tx vía session key, revocación; bonus x402/ERC-8183.
 
-## 8. Recursos
-- IVL API: `https://api.zvlint.com` (`/v1/ivl`, `/v1/ivl/ticks`, `/v1/screener`).
-- Motor/scripts IVL: `third_city/frontend/src/lib/ivl.ts`, `third_city/skills/ivl/`.
-- 8004scan Dev API (Pro gratis participantes: 500 req/min, 100k/día). TermiX BSC MCP. BNBAgent SDK
-  (`bnb-chain/bnbagent-sdk`). BNB Agent Studio (`pip install bnbagent-studio`).
+## 8. Enlaces y recursos (verificados en la pestaña Resources oficial, 17-ago-2026)
+
+**Hackathon:** página https://www.bnbchain.org/en/hackathons/smart-money-era ·
+brief https://www.bnbchain.org/en/blog/build-the-era-build-the-official-bnb-agent-studio-marketplace
+
+**BNB Agent Studio / SDK (base del agente):**
+- Studio: https://www.bnbchain.org/en/bnb-agent-studio · CLI `pip install bnbagent-studio`
+- Launch overview: https://www.bnbchain.org/en/blog/bnb-agent-studio-is-live-on-bnb-chain-ai-agents-from-one-prompt
+- BNBAgent SDK (ERC-8004/8183 + sessions + x402): https://github.com/bnb-chain/bnbagent-sdk
+
+**8004scan by AltLayer — motor de datos** (Pro gratis participantes: **500 req/min, 100k/día**):
+- Explorer: https://8004scan.io · Agentes BSC (chain 56): https://8004scan.io/agents?chain=56
+- Developer Hub & API: https://8004scan.io/developers
+- **Pro-Tier Upgrade Form** (sacar API key): https://forms.gle/jQevEPCAacBXaKG79
+- EIP-8004: https://eips.ethereum.org/EIPS/eip-8004
+
+**Partners (bounties):**
+- TermiX: https://app.termix.ai · BSC MCP server: https://github.com/TermiX-official/bsc-mcp
+- PancakeSwap: Dev Portal https://developer.pancakeswap.finance · docs https://docs.pancakeswap.finance
+- Altana: docs https://docs.altana.network · SDK+MCP https://github.com/altananetwork/altana-sdk ·
+  Sessions https://docs.altana.network/concepts/sessions · ERC-8183 SDK https://docs.altana.network/sdk/erc8183 ·
+  x402 server SDK https://docs.altana.network/sdk/x402-server
+- **Altana 10 skills** (incl. **PancakeSwap Liquidity** — clave para §3): https://skills.altana.network
+
+**Onchain / testnet:**
+- Faucet BSC testnet: https://testnet.bnbchain.org/faucet-smart (o https://www.bnbchain.org/en/testnet-faucet)
+- Brand guidelines (para `../DESIGN.md`): https://www.bnbchain.org/en/brand-guidelines
+
+**IVL (activo propio, repo hermano `third_city`):**
+- API: `https://api.zvlint.com` (`/v1/ivl`, `/v1/ivl/ticks`, `/v1/screener`)
+- Motor/scripts: `third_city/frontend/src/lib/ivl.ts`, `third_city/skills/ivl/`
+  (`backtest.mjs`, `compare.mjs`, `ivl-lp.mjs` → Agent Advantage Report)
+- Señal opcional: CMC https://coinmarketcap.com/api/agent

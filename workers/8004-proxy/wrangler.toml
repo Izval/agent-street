@@ -1,0 +1,23 @@
+# 8004-proxy — Worker de datos del marketplace (agent-street).
+# Proyecto SEPARADO del Pages/app; se despliega con `wrangler deploy` desde este dir.
+name = "agent-street-8004-proxy"
+main = "src/index.ts"
+compatibility_date = "2026-08-17"
+
+# Cache de listados/fichas de agentes. Crear los namespaces reales antes del deploy:
+#   wrangler kv namespace create AGENTS_KV
+#   wrangler kv namespace create AGENTS_KV --preview
+# y pegar los ids aquí. Para `wrangler dev`, Miniflare simula KV sin ids reales.
+[[kv_namespaces]]
+binding = "AGENTS_KV"
+id = "REPLACE_WITH_KV_ID"
+preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+
+[vars]
+# CORS: el front (Pages) consumirá este proxy. Ajustar al dominio real en prod.
+ALLOWED_ORIGIN = "*"
+# Base de la 8004scan Developer API. TODO: confirmar el host/prefijo reales con la doc.
+SCAN_8004_BASE = "https://api.8004scan.io/dev"
+
+# Secret (no en el repo):  wrangler secret put SCAN_8004_API_KEY
+# Sin ella, el Worker degrada limpio (200 con lista vacía + degraded:true).
