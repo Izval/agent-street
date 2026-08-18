@@ -27,7 +27,11 @@
   a 4 categorías, degrada limpio sin API key. **Typechecka.**
 - **`agent-ivl/`**: **Python 3.12.14** (Homebrew) + venv aislado; **`bnbagent-studio 0.0.5` instala
   limpio** (web3 7.16, eth-account, mcp, boto3, fastapi). CLI = **`bag`** (¡no `bnbagent-studio`!),
-  verificado. `requirements.txt` + `requirements.lock.txt` + `README.md`.
+  verificado. `requirements.txt` + `requirements.lock.txt` + `README.md`. **CLI mapeado a fondo**
+  (ver §4b): agente = **ADK A2A/MCP seller** sobre **AWS AgentCore gestionado**.
+- **Scripts del Report (Fase 3) verificados**: `third_city/skills/ivl/scripts/backtest.mjs` y
+  `compare.mjs` **corren hoy** contra klines de Binance en vivo y emiten métricas JSON reales
+  (time-in-range, breakout, fee-efficiency, IL). Sin deps npm (fetch puro).
 
 **⬜ Pendiente / bloqueado por credenciales del usuario:**
 - **API key 8004scan Pro** → secret del proxy (`wrangler secret put SCAN_8004_API_KEY`) + confirmar
@@ -69,6 +73,74 @@ Antes de invertir en features, confirmar el núcleo de IVL:
 | **2. Marketplace MVP** | 11–17 | Remix + Worker proxy 8004scan (KV); tabs Agents/Skills; 4 categorías; **IVL flagship**; DESIGN.md cableado | track principal |
 | **3. Hire + Data Quality + Report** | 18–24 | hire flow x402; métricas reales 8004scan; **Agent Advantage Report** (≥3 tareas, ≥1 trading) con `skills/ivl/scripts` | bounty TermiX |
 | **4. Pulido + submission** | 25–30 | video demo; público/funcional en judging; submit a Main+TermiX+PancakeSwap; Altana bonus si sobra | todos |
+
+## 4b. Detalle ejecutable de cada fase (preparado 17-ago, tras mapear el SDK)
+
+> Hechos verificados corriendo el CLI `bag` y los scripts IVL localmente. Lo marcado ⏳ depende de
+> una investigación externa en curso (TermiX/Altana/8004scan) — se cierra en la próxima pasada.
+
+### ⚠ Constraint nuevo y crítico: el **trial gestionado dura 48h**
+`bag platform credit (trial)` muestra una **cuenta regresiva de 48h** del trial de testnet en la
+plataforma gestionada (AWS AgentCore). El deploy por defecto es `--destination platform` (gestionado,
+**no requiere tu propia cuenta AWS** durante el trial). **Implicación:** NO correr `bag platform login`
+ni `bag deploy agent` hasta tener el agente probado en local con `bag dev` y todo listo — el reloj de
+48h arranca al usar la plataforma. Ensayar todo en local primero; disparar el deploy gestionado como
+paso final y continuo hacia el judging.
+
+### Modelo mental del agente (confirmado por el CLI)
+No es un script suelto: `bag init --framework adk` scaffolds un **agente ADK** que corre como
+**seller A2A** (o MCP) sobre **AgentCore**. Su lógica de rebalanceo es una **skill/tool** del agente.
+Vende trabajos vía **ERC-8183** (buy/submit/settle) y cobra vía **x402** ($U, EIP-3009). Identidad
+**ERC-8004**. Recipes disponibles: `agent`, `tools-adk`, `wallet`, `x402-buyer`
+(`bag recipe code <name>` para ver el template).
+
+### Fase 0 — Setup + de-risk onchain (bloqueada solo por credenciales)
+Secuencia exacta (en `agent-ivl/`, venv activo):
+1. `bag init ivlrebalancer --network bsc-testnet --protocol A2A --llm-provider anthropic --wallet-kind evm-local --ide claude-code`
+   (nombre ASCII alfanumérico ≤23, sin `-`; `evm-local` = keystore local propio, alternativa `twak` =
+   Trust Wallet Agent Kit).
+2. `bag wallet new` → crea keystore local. `bag wallet show` / `bag wallet balance`.
+3. **Faucet BSC testnet** (§8) → fondear la address con tBNB. Reverificar con `bag wallet balance`.
+4. **API key 8004scan Pro** (form §8) → `bag env set` / `.studio/.env.local` (nunca al repo;
+   `bag deploy fix-gitignore` asegura que `.studio/` esté ignorado).
+5. `bag erc8004 register` → **identidad onchain ERC-8004 = requisito duro** (aparece en 8004scan).
+6. `bag doctor --check-env` → sweep de entorno. `bag dev` → correr el agente en local y probar A2A.
+7. `bag deploy prepare` (20-check) → cuando pase, `bag platform login` + `bag deploy agent` (⚠ arranca
+   las 48h). `bag deploy verify` reconcilia la identidad ERC-8004 del endpoint desplegado.
+   → **Milestone Fase 0:** agente vivo en BSC testnet con ≥1 tx onchain, visible en 8004scan.
+
+### Fase 1 — Agente IVL vivo (ejecución LP)
+- La skill de rebalanceo del agente hace `GET api.zvlint.com/v1/ivl/ticks?pair=BNB-USDT` → obtiene
+  `ticks.tickLower/tickUpper` + `decision.action` (open_or_hold / withdraw_or_widen / reset).
+- **Ejecución LP en Pancake v3 con esos ticks** → ⏳ **camino por confirmar (§3.2)**: skill PancakeSwap
+  Liquidity de Altana → TermiX BSC MCP → fallback `NonfungiblePositionManager.mint` vía contract-call
+  del SDK. La investigación en curso decide cuál.
+- **Baseline runs** para el Report: `node backtest.mjs --pair BNB-USDT --lookback 96 --hold 48 --step 16
+  --history 1000 --json` (ya corre). → **Milestone:** el agente reposiciona LP onchain solo.
+
+### Fase 2 — Marketplace MVP
+- **Rutas a construir** (app RR v8): `/category/:id`, `/agent/:id`, `/skill/:id`, `/hire` (home ✅).
+- **Cliente del proxy** en `app/app/lib/agents.ts` → consume `workers/8004-proxy` (`/v1/agents`,
+  `/v1/agents/:id`). Loaders SSR por ruta; filtrar por categoría.
+- **Proxy 8004scan**: poner `SCAN_8004_API_KEY` (secret) + confirmar host/paths/auth/shape reales
+  (⏳ investigación) y afinar `normalize()` en `workers/8004-proxy/src/index.ts`.
+- **Seed curado** (Capa 2): cargar catálogo de `docs/seed-catalog.md` (Gridora ERC-8004 #140004, etc.)
+  como fallback/enriquecimiento. → **Milestone:** marketplace público navegable, 4 categorías, datos reales.
+
+### Fase 3 — Hire flow + Data Quality + Agent Advantage Report (TermiX)
+- **Hire flow x402**: `bag x402 quote` (probe 402) → `bag x402 buy` (pagar $U). En el front, botón
+  "Hire" del `/agent/:id` dispara el flujo x402 contra el endpoint del agente. `bag x402 trust` registra
+  el merchant.
+- **Report** (`reports/`): reusar los scripts (ya corren):
+  - `node compare.mjs --pair AAVE-WBNB --scale 1d --history 365 --delta 0.16 --json` → IVL vs naive vs
+    random (fees − IL neto). **Es la evidencia "contratar al agente > hacerlo tú mismo".**
+  - `node backtest.mjs …` para ≥3 pares/tareas (≥1 trading). Documentar tiempo/costo/calidad.
+  → **Milestone:** Report con ≥3 tareas medidas, ≥1 trading.
+
+### Fase 4 — Pulido + submission
+- Video demo del journey (descubrir → comparar → hire). Público y funcional durante judging.
+- Submit a Main + TermiX + PancakeSwap. **Altana bonus** (session keys + spend cap + expiry +
+  revocación + tx visible en Altana explorer) si sobra tiempo — el SDK ya trae x402/sessions.
 
 ## 5. Componentes a construir
 1. **`agent-ivl/`** — agente BNBAgent SDK (Python). Poll IVL API → decide open/hold/reset → ejecuta LP.
