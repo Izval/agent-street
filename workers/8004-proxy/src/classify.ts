@@ -41,12 +41,26 @@ const RULES: Array<{ category: Category; kw: RegExp }> = [
   },
 ];
 
+/**
+ * Término de búsqueda por categoría para la 8004scan API (`?search=`).
+ * Con 257k+ agentes en BSC, filtramos server-side por categoría en vez de
+ * clasificar páginas enteras. Verificado en vivo: `search=grid` devuelve
+ * grid traders reales (17-ago-2026).
+ */
+export const CATEGORY_SEARCH: Record<Category, string> = {
+  rebalancing: "rebalance",
+  grid: "grid",
+  yield: "yield",
+  health: "liquidation",
+};
+
 /** Texto de un agente a considerar para clasificar. */
 export interface Classifiable {
   name?: string;
   description?: string;
   skills?: string[];
   tags?: string[];
+  categories?: string[];
 }
 
 /**
@@ -60,6 +74,7 @@ export function classifyAgent(a: Classifiable): Category | null {
     a.description ?? "",
     ...(a.skills ?? []),
     ...(a.tags ?? []),
+    ...(a.categories ?? []),
   ]
     .join(" ")
     .toLowerCase();

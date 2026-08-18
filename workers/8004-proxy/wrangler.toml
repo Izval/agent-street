@@ -16,8 +16,8 @@ preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
 [vars]
 # CORS: el front (Pages) consumirá este proxy. Ajustar al dominio real en prod.
 ALLOWED_ORIGIN = "*"
-# Base de la 8004scan Developer API. TODO: confirmar el host/prefijo reales con la doc.
-SCAN_8004_BASE = "https://api.8004scan.io/dev"
+# Base de la 8004scan Public API (verificada en vivo 17-ago-2026).
+SCAN_8004_BASE = "https://8004scan.io/api/v1/public"
 
-# Secret (no en el repo):  wrangler secret put SCAN_8004_API_KEY
-# Sin ella, el Worker degrada limpio (200 con lista vacía + degraded:true).
+# Secret opcional (no en el repo):  wrangler secret put SCAN_8004_API_KEY
+# La API funciona ANÓNIMA (~10 req/min); la key Pro solo sube el rate-limit.

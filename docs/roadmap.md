@@ -23,8 +23,12 @@
   typechecka limpio.** `DESIGN.md` cableado (tokens CSS dark-first → `@theme` Tailwind). Cliente
   IVL tipado (`lib/ivl.ts`, formas verificadas contra `api.zvlint.com`). Home SSR con **score IVL en
   vivo** (flagship BNB-USDT), tabs Agents/Skills, chips de las 4 categorías — **render SSR confirmado**.
-- **`workers/8004-proxy/`**: esqueleto (CORS + KV + rate-limit del patrón third_city), `classify.ts`
-  a 4 categorías, degrada limpio sin API key. **Typechecka.**
+- **`workers/8004-proxy/`**: **REAL y probado en vivo.** Endpoints/campos de 8004scan verificados
+  (`GET /agents?chainId=56&search=&sortBy=total_score`, `GET /agents/{56}/{tokenId}`; envelope
+  `{success,data,meta.pagination}`). **Funciona ANÓNIMO** (~10 req/min; key Pro solo sube límite).
+  `wrangler dev` devolvió grid traders BSC reales clasificados, con score/x402/owner. **~257k agentes
+  BSC** disponibles. Métricas honestas de Data Quality: `stars, total_score, average_score,
+  total_feedbacks, health_score, x402_supported, is_verified`.
 - **`agent-ivl/`**: **Python 3.12.14** (Homebrew) + venv aislado; **`bnbagent-studio 0.0.5` instala
   limpio** (web3 7.16, eth-account, mcp, boto3, fastapi). CLI = **`bag`** (¡no `bnbagent-studio`!),
   verificado. `requirements.txt` + `requirements.lock.txt` + `README.md`. **CLI mapeado a fondo**
@@ -59,11 +63,24 @@ Antes de invertir en features, confirmar el núcleo de IVL:
    desplegar un agente mínimo que haga **UNA tx onchain** y se registre en 8004scan. Flujo con `bag`:
    `bag init` → `bag wallet create` → `bag erc8004 register` → `bag dev`/`bag deploy`. → asegura el
    requisito duro del hackathon el día 3.
-2. **¿Se puede mintear una posición PancakeSwap v3 con `tickLower/tickUpper` específicos?** Probar
-   PRIMERO la skill **PancakeSwap Liquidity** de Altana (https://skills.altana.network) y, si no, el
-   **TermiX BSC MCP**. Es el núcleo de IVL (el API `/v1/ivl/ticks` ya devuelve el rango). **Si ninguno
-   lo soporta → fallback: llamada directa a `NonfungiblePositionManager.mint`** con la capacidad de
-   contract-call del SDK. Resolver esto define el camino de ejecución.
+2. **¿Se puede mintear una posición PancakeSwap v3 con `tickLower/tickUpper` específicos?**
+   ✅ **RESUELTO (17-ago-2026, investigación con clone de repos).** Ningún tool de alto nivel expone
+   ticks explícitos:
+   - **Skill PancakeSwap Liquidity de Altana = V2, sin ticks.** ❌ No sirve para el núcleo v3.
+     (Esto invierte el orden "Altana primero" que estaba aquí: quedó descartada para v3.)
+   - **TermiX BSC MCP**: su `Add_PancakeSwap_Liquidity` **sí es v3** (llama `NonfungiblePositionManager.mint`,
+     usa TickMath) **pero el schema MCP solo acepta `{token0,token1,amounts}`** y calcula los ticks
+     internamente (banda ±20% fija, fee 0.3% hardcodeado). Su `callContractFunction` genérico
+     **no está implementado** (solo en el README). ❌ No hitea ticks exactos out-of-the-box.
+   - **bnbagent-sdk**: `EVMWalletProvider` firma y auto-broadcastea tx arbitrarias (`sign.transaction`),
+     así que se puede armar el `mint` crudo. `AltanaWalletProvider` = session keys + spend caps + x402
+     (para el bounty Altana).
+   - **➡ CAMINO ELEGIDO:** encodear y enviar `NonfungiblePositionManager.mint(MintParams{token0,token1,
+     fee,tickLower,tickUpper,amount0Desired,amount1Desired,amount0Min,amount1Min,recipient,deadline})`
+     **directo**, con los ticks de `/v1/ivl/ticks`. **Ruta más limpia:** forkear el tool `addLiquidityV3`
+     de bsc-mcp para exponer `tickLower/tickUpper`+`fee` (~10 líneas; ABI/TickMath/approvals ya
+     vendorizados). **Fallback:** armar el `mint` con viem/ethers y broadcast vía `EVMWalletProvider`
+     del SDK. Fuentes: `TermiX-official/bsc-mcp`, `bnb-chain/bnbagent-sdk`, `docs.altana.network`.
 
 ## 4. Plan por fases (10 ago → 9 sep, solo)
 | Fase | Días | Entregable | Cubre |
@@ -76,8 +93,8 @@ Antes de invertir en features, confirmar el núcleo de IVL:
 
 ## 4b. Detalle ejecutable de cada fase (preparado 17-ago, tras mapear el SDK)
 
-> Hechos verificados corriendo el CLI `bag` y los scripts IVL localmente. Lo marcado ⏳ depende de
-> una investigación externa en curso (TermiX/Altana/8004scan) — se cierra en la próxima pasada.
+> Hechos verificados corriendo el CLI `bag`, los scripts IVL y el proxy localmente, más investigación
+> con clone de repos (TermiX/Altana/8004scan/bnbagent-sdk). Todo confirmado — sin pendientes de research.
 
 ### ⚠ Constraint nuevo y crítico: el **trial gestionado dura 48h**
 `bag platform credit (trial)` muestra una **cuenta regresiva de 48h** del trial de testnet en la
@@ -112,18 +129,19 @@ Secuencia exacta (en `agent-ivl/`, venv activo):
 ### Fase 1 — Agente IVL vivo (ejecución LP)
 - La skill de rebalanceo del agente hace `GET api.zvlint.com/v1/ivl/ticks?pair=BNB-USDT` → obtiene
   `ticks.tickLower/tickUpper` + `decision.action` (open_or_hold / withdraw_or_widen / reset).
-- **Ejecución LP en Pancake v3 con esos ticks** → ⏳ **camino por confirmar (§3.2)**: skill PancakeSwap
-  Liquidity de Altana → TermiX BSC MCP → fallback `NonfungiblePositionManager.mint` vía contract-call
-  del SDK. La investigación en curso decide cuál.
+- **Ejecución LP en Pancake v3 con esos ticks** → ✅ **camino decidido (§3.2)**: `mint` directo al
+  `NonfungiblePositionManager` con los ticks; ruta limpia = forkear el tool `addLiquidityV3` de
+  bsc-mcp para exponer ticks/fee; fallback = mint con viem/ethers vía `EVMWalletProvider` del SDK.
 - **Baseline runs** para el Report: `node backtest.mjs --pair BNB-USDT --lookback 96 --hold 48 --step 16
   --history 1000 --json` (ya corre). → **Milestone:** el agente reposiciona LP onchain solo.
 
 ### Fase 2 — Marketplace MVP
 - **Rutas a construir** (app RR v8): `/category/:id`, `/agent/:id`, `/skill/:id`, `/hire` (home ✅).
 - **Cliente del proxy** en `app/app/lib/agents.ts` → consume `workers/8004-proxy` (`/v1/agents`,
-  `/v1/agents/:id`). Loaders SSR por ruta; filtrar por categoría.
-- **Proxy 8004scan**: poner `SCAN_8004_API_KEY` (secret) + confirmar host/paths/auth/shape reales
-  (⏳ investigación) y afinar `normalize()` en `workers/8004-proxy/src/index.ts`.
+  `/v1/agents/:tokenId`). Loaders SSR por ruta; filtrar por categoría. (Proxy ✅ real y probado.)
+- **Proxy 8004scan**: ✅ endpoints/campos reales cableados y probados en vivo. Pendiente menor: poner
+  `SCAN_8004_API_KEY` (secret, opcional) para subir el rate-limit; crear KV namespaces reales antes
+  del deploy (`wrangler kv namespace create AGENTS_KV`).
 - **Seed curado** (Capa 2): cargar catálogo de `docs/seed-catalog.md` (Gridora ERC-8004 #140004, etc.)
   como fallback/enriquecimiento. → **Milestone:** marketplace público navegable, 4 categorías, datos reales.
 
