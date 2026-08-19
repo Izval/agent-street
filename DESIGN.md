@@ -178,3 +178,128 @@ CTA pill amarillo derecha. Respetar reglas de logo (§7).
 - IBM Plex Sans/Mono self-hosted en `app/` (woff2), no CDN.
 - Tailwind opcional: mapear estos tokens a `theme.extend.colors` (`brand`, `bg`, `surface`, `up`, `down`…)
   para no hardcodear hex en componentes.
+
+---
+
+# DESIGN.md v2 — Marketplace "App Store" (extiende v1, no lo reemplaza)
+
+> v1 (§1–§10) sigue vigente: paleta, tipografía, amarillo sagrado y escaso, verde/rojo solo datos,
+> numerales tabulares, reglas de logo. v2 añade el **layout tipo App Store**, glassmorfismo sutil,
+> acentos por aisle, tokens de charts y las **plantillas por categoría**. Tokens en `app/app/app.css`.
+
+## 11. Layout — shell de dos columnas
+- **AppShell** en todas las páginas: **sidebar fijo** (~260px desktop) + **contenido** (máx 1200px).
+  Móvil: el sidebar colapsa a un drawer (botón hamburguesa en un top-bar delgado).
+- **Sidebar** (`.glass` opcional sobre `--bg`): logo BNB arriba; buscador; sección **Discover**;
+  lista de **aisles** (Trading · DeFi · NFT · RWA · Infra · Payments · Social) con su `glyph` y, al
+  activo, texto `--text` + barra `--brand` a la izquierda (amarillo escaso = estado activo); separador;
+  bloque **"Categorías obligatorias"** con las 4 ★ (Rebalancing · Grid · Yield · Health) siempre visibles.
+- **Contenido**: hero/banner arriba, luego bloques grandes y colecciones. Grid del marketplace igual
+  que v1 (3→2→1 col, gap 24) pero con **toggle grid/list**.
+
+## 12. Hero / video banner (bloque grande)
+- Slot de **video** self-hosted (mp4/webm, loop, muted, `playsinline`, `poster`), radio `--r-lg`,
+  overlay de texto legible (gradiente inferior). Respetar `prefers-reduced-motion` (pausar).
+- **Fallback sin asset**: clase `.hero-anim` (gradiente marca en deriva lenta) + título editorial.
+  Nunca dejar el bloque vacío. El amarillo aparece solo como glow sutil (`--hero-glow`), no como fondo.
+- Copy editorial en **sentence case**, activo y concreto (skill de escritura): nombra lo que el usuario
+  hace ("Descubre agentes que rebalancean tu LP"), no jerga de sistema.
+
+## 13. Glassmorfismo (sutil, controlado)
+- Tokens: `--glass-bg`, `--glass-border`, `--glass-blur`; utilidad `.glass`. **Solo** en bloques grandes,
+  hero, sidebar flotante y overlays — nunca en cards de datos densas (romperían la legibilidad numérica).
+- Reconcilia la "sombra susurrada" de v1: el glass es **additivo y escaso**; la elevación sigue siendo
+  por color de superficie. No apilar glass sobre glass. Verificar contraste AA del texto sobre glass.
+
+## 14. Acentos por aisle (sutiles, no compiten con el amarillo)
+- `--accent-{trading,defi,nft,rwa,infra,payments,social}` (definidos en `app.css`). Uso permitido:
+  glyph del sidebar, subrayado/borde de encabezado de sección, punto de categoría. **Prohibido** como
+  fondo de bloques o como sustituto del amarillo de marca. El amarillo mantiene su monopolio en CTA/activo.
+
+## 15. Charts (SVG puro, sin deps) — reglas dataviz
+- **Forma según el trabajo del dato**; el color va al final. Paleta categórica en `--series-1..8`
+  (validada con el script del skill dataviz: pasa banda de luminosidad, CVD y contraste sobre el surface
+  oscuro) + `--series-neutral` para "Cash/otros".
+- **Reservado**: `--up`/`--down` son **polaridad/estado**, nunca un "series 4". PnL, cambios y flechas
+  usan up/down; identidad categórica (slices de allocation, barras de protocolo) usa `--series-*` en
+  **orden fijo** (nunca cíclico; el 9º elemento va a "Otros").
+- **Marks**: líneas 2px, extremos redondeados 4px anclados a la baseline, gap de 2px entre rellenos,
+  markers ≥8px; grid/ejes recesivos (`--border`/`--text-3`). Leyenda presente con ≥2 series; etiqueta
+  directa selectiva (no un número en cada punto). Texto de datos con tokens de texto, no con el color de
+  la serie. Un subconjunto de la paleta se **re-valida** en su página antes de shippear (WS2.2).
+- Componentes: `AreaChart`/`Sparkline` (equity), `Donut` (allocation), `Gauge` (health factor),
+  `BarCompare` (APY). Todos con hover/tooltip por defecto y estado de tabla accesible.
+
+## 16. Plantillas por categoría (`categoryTemplate()` en `lib/taxonomy.ts`)
+Cada tipo de plantilla fija los KPIs/charts/acento de la **card** y del **detalle**, para que Trading no
+se vea igual que Yield. Mapeo `TemplateKind` → contenido:
+| Template | KPIs primarios | Chart(s) | Acento |
+|---|---|---|---|
+| `trading` (Grid★, DCA, Momentum…) | Win rate · PnL · Volumen · #trades | Equity area + trades | trading |
+| `clmm` (Rebalancing★, IVL) | IVL score · Rango LP · APR · Time-in-range | ScoreMeter + rango | defi |
+| `yield` (Yield★, Lending, LST) | APY · TVL · Protocolo | BarCompare | defi |
+| `health` (Health★) | Health factor · Dist. liquidación · Colateral | Gauge | defi |
+| `nft` | Floor · Volumen · Holdings | Sparkline floor | nft |
+| `rwa` | Tipo activo · Respaldo · Yield | — | rwa |
+| `services` (Infra/Payments/Social) | Services/skills · x402 · Uptime · Freshness | — | por aisle |
+
+## 17. Detalle de agente = dashboard (product page + monitoring)
+Orden de paneles (algunos dependen de la plantilla). Cada panel **rotula su fuente** (Data Quality honesto):
+1. **Header**: nombre, publisher/owner (avatar/ENS si hay), chips de categoría, badges verified/x402,
+   **rank badge** (8004scan), estado `● Live`/`Testnet`. Glass permitido aquí.
+2. **KPI row** (`KpiTile`, template-driven): valores onchain con `tabular-nums`. Lo derivado
+   (equity/PnL/win-rate) lleva nota **"since indexed"**; lo estimado nunca se presenta como exacto.
+3. **Charts**: Equity curve (área) + Asset allocation (donut, suma 100%) — del indexer onchain.
+4. **Recent trades** (swaps onchain, con link a la tx) + **Live logs** (actividad A2A / feed de tx).
+5. **Reputación**: score breakdown real (dimensiones 8004scan) · rank/network_rank · health · freshness ·
+   **resumen de reviews** (avg + conteo; la lista de reviews es futura, no inventar autores).
+6. **Services & skills**: endpoint A2A/MCP · skills ERC-8183 · x402.
+7. **Hire CTA** (x402 — se cablea en Fase 3). Sidebar sticky con ScoreMeter + botón.
+
+## 18. Honestidad de datos (criterio de juzgado "Data Quality")
+- Badge de fuente en cada dato: `8004scan` (● live), `onchain` (indexer), `IVL` (api.zvlint.com),
+  `curated` (seed fallback). Sin proxy/indexer → seed, nunca en blanco.
+- No presentar estimaciones como PnL real exacto; rotular "since indexed" / "aprox.". Donut = balances
+  reales × precio (CMC); si falta precio de un token, marcarlo, no omitirlo del total en silencio.
+
+---
+
+# DESIGN.md v3 — Marketplace "mission control" (extiende v2)
+
+> Salto a marketplace de primera categoría: hero panorámico con slideshow+video, tarjetas de categoría con
+> fondo propio, rail de Trending por **demanda propia** (views+hires), glass de 3 tiers. Firma: **liveness
+> de sala de control** — dato en vivo, pulsos, números que fluyen. Tokens/utilidades en `app/app/app.css`.
+
+## 19. Glass — 3 tiers (obligatorio usar la clase correcta)
+- `.glass-frost` — panel de texto del hero, overlays, command-K (blur 28 + saturate, borde .10, **inner
+  top highlight**, sombra hero). `.glass-panel` — rail de trending, cards elevadas, sidebar (blur 16).
+  `.glass-hair` — chips/pills/toggles (blur 8). Regla: **máx 2 capas** de glass apiladas; texto sobre frost
+  siempre AA; el frost del hero lleva además gradiente de legibilidad negro→transparente bajo el texto.
+- Glass **solo** en bloques grandes/overlays/chrome; **nunca** en data-cards densas de números.
+
+## 20. Profundidad y glow
+- Fondo `body` = campo cinematográfico estático (radiales marca+azul muy tenues). `.glow-brand` (amarillo
+  8–14%) **solo** en hero, insignia flagship y activo. Elevación por capas: bg→surface→panel→frost→modal.
+- `.grad-{aisle}` = gradiente oscuro tintado con el accent del aisle, para el fondo de `CategoryTile`.
+
+## 21. Motion (tokens `--ease-out-expo`, `--dur-*`; siempre reduced-motion)
+- Utilidades: `.reveal`/`.reveal-in` (scroll-reveal), `.shimmer` (skeleton, **sin spinners**), `.live-dot`
+  (pulso 2s), `.kenburns` (hero 8s). Hero: cross-fade 700ms + Ken Burns + parallax del frost. Datos:
+  count-up + pulse al actualizar. Hover: lift 2–3px + glow. Tilt ≤3° solo en tiles/slides. FLIP en el rail.
+
+## 22. Layout marketplace (Discover)
+Sidebar (glass-panel) · **MarketplaceChrome** (pills aisle · red BSC · Agents/Skills/Tokens · rango ·
+grid/list · sort, sticky) · **HeroCarousel panorámico full-width** · **CategoryTiles** (fondo propio) ·
+main = `CollectionCarousel` ×4★ + por aisle **con `TrendingRail` derecho sticky (al bajar del hero)** ·
+`LiveTicker` al pie. <1280px: rail → carril horizontal; móvil → acordeón.
+
+## 23. Componentes nuevos (ver spec completo en el plan v3)
+`HeroCarousel`/`HeroSlide` (video+frost+dots+progreso), `CategoryTile` (fondo por aisle), `TrendingRail`/
+`TrendingRow` (demanda: rank, métrica, Δ% real, sparkline), `MarketplaceChrome`, `CollectionCarousel`,
+`AgentCard` refino template-driven + `AgentRow`, `LiveTicker`, `SearchCommand` (⌘K), `Skeleton`/`EmptyState`/
+`Tooltip`/`Toast`. Cada uno: propósito · anatomía · estados · datos · motion · responsive · a11y.
+
+## 24. Trending por demanda propia (honesto)
+Trending = **views + hires** que contamos nosotros (worker analítica + KV por buckets de tiempo). El %change
+y el movimiento de rank son **reales** (data de primera mano). Sin datos suficientes → "nuevo"/omitir delta,
+nunca inventar. Badge de fuente `demanda`. (Los tokens BSC del tab "Tokens" usan CMC, con %change real.)

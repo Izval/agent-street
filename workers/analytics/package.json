@@ -1,0 +1,17 @@
+{
+  "name": "agent-street-analytics",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Worker: analítica de demanda (views + hires) con trending honesto por eventos propios.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8790 --inspector-port 9340 --local",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260811.1",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.123.0"
+  }
+}

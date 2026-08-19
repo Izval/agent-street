@@ -32,9 +32,17 @@ export interface Env {
   SCAN_8004_BASE: string;
   // Secret opcional: `wrangler secret put SCAN_8004_API_KEY`. Sube el rate-limit.
   SCAN_8004_API_KEY?: string;
+  // Secret opcional: `wrangler secret put SUBMIT_TOKEN`. Si está seteado, protege el
+  // POST /v1/submitted (el registrar/front debe mandar `x-submit-token`). Ausente ⇒ abierto.
+  SUBMIT_TOKEN?: string;
 }
 
 const CHAIN_ID = 56; // BSC mainnet (donde viven los agentes ERC-8004 indexados).
+const TESTNET_CHAIN_ID = 97; // BSC testnet (agentes creados en "Crea tu propio agente").
+
+/** Red del badge a partir del chainId. */
+const networkOf = (chainId: number): "testnet" | "mainnet" =>
+  chainId === TESTNET_CHAIN_ID ? "testnet" : "mainnet";
 
 // --- Forma normalizada que consume el marketplace (métricas reales de 8004scan) ---
 export interface Agent {
@@ -56,12 +64,77 @@ export interface Agent {
   healthScore: number | null;
   isVerified: boolean;
   x402Supported: boolean; // relevante para el hire flow
+  // Ranking global/de-red (raw rank / network_rank). Nullable: 8004scan no
+  // siempre los expone (agentes sin evidencia suficiente).
+  rank: number | null;
+  networkRank: number | null;
   ownerAddress?: string;
   agentWallet?: string;
+  // Metadatos del owner (raw owner_*). Nullable.
+  ownerUsername: string | null;
+  ownerEns: string | null;
+  ownerAvatarUrl: string | null;
+  ownerPublisherTier: string | null;
+  ownerCertifiedName: string | null;
   tags?: string[];
   supportedProtocols?: string[];
+  // "8004scan" = feed indexado (mainnet); "submitted" = creado en el marketplace
+  // ("Crea tu propio agente"), vive en el registro KV propio (testnet por defecto).
+  source: "8004scan" | "submitted";
+  // Red del agente para el badge del marketplace. 8004scan = mainnet; creados = testnet.
+  network: "testnet" | "mainnet";
+  /** Estado del alta onchain de un agente creado: "registered" | "pending". */
+  status?: "registered" | "pending";
+  /** tx de registro/fondeo (agentes creados). */
+  txHash?: string;
+}
+
+// --- Reputación (espeja `Reputation` de app/app/lib/contracts.ts) ---
+export interface ReputationDimension {
+  key: string; // "service" | "momentum" | "publisher" | ...
+  score: number; // 0–100
+  weight: number; // 0–1
+}
+
+export interface Reputation {
+  totalScore: number;
+  rank: number | null;
+  networkRank: number | null;
+  health: number | null;
+  freshness: number | null;
+  activity: number | null;
+  popularity: number | null;
+  metadataCompleteness: number | null;
+  dimensions: ReputationDimension[];
+  feedbacks: number;
+  avgScore: number;
   source: "8004scan";
 }
+
+// --- Services & skills (espeja `AgentServices`/`AgentSkill` de contracts.ts) ---
+export interface AgentSkill {
+  id: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+}
+
+export interface AgentServices {
+  a2aEndpoint: string | null;
+  mcpEndpoint: string | null;
+  protocolVersion: string | null;
+  skills: AgentSkill[];
+  x402: boolean;
+  erc8183: boolean;
+  /** true si el agent-card A2A se pudo leer en vivo. */
+  cardLive: boolean;
+}
+
+/** Detalle enriquecido que devuelve `getAgent` (Agent + reputación + services). */
+export type AgentDetail = Agent & {
+  reputation: Reputation;
+  services: AgentServices;
+};
 
 export interface Pagination {
   page: number;
@@ -108,8 +181,8 @@ async function underRateLimit(request: Request): Promise<boolean> {
 function corsHeaders(env: Env): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN || "*",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, x-submit-token",
     Vary: "Origin",
   };
 }
@@ -152,7 +225,14 @@ function normalize(raw: Record<string, unknown>): Agent {
   const supportedProtocols = Array.isArray(raw.supported_protocols)
     ? (raw.supported_protocols as unknown[]).map(String)
     : undefined;
-  const category = classifyAgent({ name, description, tags, categories });
+  const category = classifyAgent({
+    name,
+    description,
+    tags,
+    categories,
+    protocols: supportedProtocols,
+  });
+  const strOrNull = (v: unknown) => (v == null || v === "" ? null : String(v));
   return {
     id: String(raw.token_id ?? raw.id ?? name),
     agentId: String(raw.agent_id ?? ""),
@@ -171,11 +251,19 @@ function normalize(raw: Record<string, unknown>): Agent {
     healthScore: raw.health_score == null ? null : num(raw.health_score),
     isVerified: Boolean(raw.is_verified),
     x402Supported: Boolean(raw.x402_supported),
+    rank: raw.rank == null ? null : num(raw.rank),
+    networkRank: raw.network_rank == null ? null : num(raw.network_rank),
     ownerAddress: raw.owner_address ? String(raw.owner_address) : undefined,
     agentWallet: raw.agent_wallet ? String(raw.agent_wallet) : undefined,
+    ownerUsername: strOrNull(raw.owner_username),
+    ownerEns: strOrNull(raw.owner_ens),
+    ownerAvatarUrl: strOrNull(raw.owner_avatar_url),
+    ownerPublisherTier: strOrNull(raw.owner_publisher_tier),
+    ownerCertifiedName: strOrNull(raw.owner_certified_name),
     tags,
     supportedProtocols,
     source: "8004scan",
+    network: networkOf(num(raw.chain_id, CHAIN_ID)),
   };
 }
 
@@ -216,41 +304,176 @@ async function listAgents(
 ): Promise<AgentsPage> {
   const search = params.search ?? (params.category ? CATEGORY_SEARCH[params.category] : undefined);
   const cacheKey = `agents:v2:${params.category ?? "all"}:${search ?? ""}:${params.page}:${params.limit}`;
-  const cached = await env.AGENTS_KV.get(cacheKey, "json");
-  if (cached) return cached as AgentsPage;
 
-  const { rows, pagination } = await fetch8004List(env, {
-    page: params.page,
-    limit: params.limit,
-    search,
-  });
-  let agents = rows.map(normalize);
-  // Si pidieron categoría, además asignamos el label por clasificación (el search
-  // acota; classifyAgent etiqueta). No filtramos duro para no vaciar la página.
-  if (params.category) {
-    agents = agents.map((a) => ({
-      ...a,
-      category: a.category ?? params.category!,
-      categoryLabel: a.categoryLabel ?? CATEGORY_LABELS[params.category!],
-    }));
+  // 1) Porción 8004scan (cacheada). Solo cacheamos el feed upstream; los agentes
+  //    creados se fusionan EN VIVO abajo para que aparezcan al instante.
+  let base = (await env.AGENTS_KV.get(cacheKey, "json")) as AgentsPage | null;
+  if (!base) {
+    const { rows, pagination } = await fetch8004List(env, {
+      page: params.page,
+      limit: params.limit,
+      search,
+    });
+    let agents = rows.map(normalize);
+    // Si pidieron categoría, además asignamos el label por clasificación (el search
+    // acota; classifyAgent etiqueta). No filtramos duro para no vaciar la página.
+    if (params.category) {
+      agents = agents.map((a) => ({
+        ...a,
+        category: a.category ?? params.category!,
+        categoryLabel: a.categoryLabel ?? CATEGORY_LABELS[params.category!],
+      }));
+    }
+    base = {
+      agents,
+      count: agents.length,
+      pagination,
+      categories: categoriesMeta(),
+      anonymous: !env.SCAN_8004_API_KEY,
+    };
+    await env.AGENTS_KV.put(cacheKey, JSON.stringify(base), {
+      expirationTtl: LIST_CACHE_SEC,
+    });
   }
-  const page: AgentsPage = {
-    agents,
-    count: agents.length,
-    pagination,
-    categories: categoriesMeta(),
-    anonymous: !env.SCAN_8004_API_KEY,
-  };
-  await env.AGENTS_KV.put(cacheKey, JSON.stringify(page), {
-    expirationTtl: LIST_CACHE_SEC,
-  });
-  return page;
+
+  // 2) Fusiona los agentes creados (testnet, badge propio) al FRENTE de la página 1.
+  //    No se hace con `search` libre (para no descolocar la búsqueda por texto).
+  if (params.page === 1 && !params.search) {
+    const submitted = await listSubmitted(env, params.category);
+    if (submitted.length) {
+      const merged = [...submitted, ...base.agents];
+      return { ...base, agents: merged, count: merged.length };
+    }
+  }
+  return base;
 }
 
-async function getAgent(env: Env, tokenId: string): Promise<Agent | null> {
-  const cacheKey = `agent:v2:${CHAIN_ID}:${tokenId}`;
+/** Convierte una lista cruda de skills (8004scan services.a2a.skills o agent-card) a AgentSkill[]. */
+function toSkills(v: unknown): AgentSkill[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((s) => {
+      const o = (s ?? {}) as Record<string, unknown>;
+      const skill: AgentSkill = {
+        id: String(o.id ?? o.name ?? ""),
+        name: String(o.name ?? o.id ?? ""),
+      };
+      if (o.description != null && o.description !== "")
+        skill.description = String(o.description);
+      if (Array.isArray(o.tags)) skill.tags = (o.tags as unknown[]).map(String);
+      return skill;
+    })
+    .filter((s) => s.id || s.name);
+}
+
+/** Reputación real desde raw `scores` + `scores.breakdown.dimensions`. */
+function buildReputation(raw: Record<string, unknown>): Reputation {
+  const scores = (raw.scores as Record<string, unknown> | undefined) ?? {};
+  const breakdown =
+    (scores.breakdown as Record<string, unknown> | undefined) ?? {};
+  const dims =
+    (breakdown.dimensions as Record<string, unknown> | undefined) ?? {};
+  const dimensions: ReputationDimension[] = Object.entries(dims).map(
+    ([key, v]) => {
+      const o = (v ?? {}) as Record<string, unknown>;
+      return { key, score: num(o.score), weight: num(o.weight) };
+    },
+  );
+  const orNull = (v: unknown) => (v == null ? null : num(v));
+  return {
+    totalScore: num(raw.total_score),
+    rank: raw.rank == null ? null : num(raw.rank),
+    networkRank: raw.network_rank == null ? null : num(raw.network_rank),
+    health: orNull(scores.health_score),
+    freshness: orNull(scores.freshness),
+    activity: orNull(scores.activity),
+    popularity: orNull(scores.popularity),
+    metadataCompleteness: orNull(scores.metadata_completeness),
+    dimensions,
+    feedbacks: num(raw.total_feedbacks),
+    avgScore: num(raw.average_score),
+    source: "8004scan",
+  };
+}
+
+/** Lee el agent-card A2A en vivo (timeout corto). null si falla/timeout. */
+async function fetchAgentCard(
+  endpoint: string,
+): Promise<Record<string, unknown> | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3000);
+  try {
+    const res = await fetch(endpoint, {
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as Record<string, unknown>;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Detección conservadora de ERC-8183 (job/seller agent). */
+const ERC8183_RE = /8183|seller|createjob|notify_funded/i;
+
+/** Services + skills desde raw `services`, con fallback a agent-card en vivo. */
+async function buildServices(
+  raw: Record<string, unknown>,
+): Promise<AgentServices> {
+  const services = (raw.services as Record<string, unknown> | undefined) ?? {};
+  const a2a = (services.a2a as Record<string, unknown> | undefined) ?? {};
+  const mcp = (services.mcp as Record<string, unknown> | undefined) ?? {};
+  const a2aEndpoint = a2a.endpoint ? String(a2a.endpoint) : null;
+  const mcpEndpoint = mcp.endpoint ? String(mcp.endpoint) : null;
+  let protocolVersion = a2a.version ? String(a2a.version) : null;
+
+  const supported = Array.isArray(raw.supported_protocols)
+    ? (raw.supported_protocols as unknown[]).map(String)
+    : [];
+  let erc8183 = supported.some((p) => ERC8183_RE.test(p));
+
+  let skills = toSkills(a2a.skills);
+  let cardLive = false;
+
+  // Si 8004scan no trajo skills pero hay endpoint, intenta el card en vivo.
+  if (skills.length === 0 && a2aEndpoint) {
+    const card = await fetchAgentCard(a2aEndpoint);
+    if (card) {
+      cardLive = true;
+      skills = toSkills(card.skills);
+      if (!protocolVersion && card.protocolVersion != null)
+        protocolVersion = String(card.protocolVersion);
+      if (!erc8183) erc8183 = ERC8183_RE.test(JSON.stringify(card));
+    }
+  }
+
+  return {
+    a2aEndpoint,
+    mcpEndpoint,
+    protocolVersion,
+    skills,
+    x402: Boolean(raw.x402_supported),
+    erc8183,
+    cardLive,
+  };
+}
+
+async function getAgent(
+  env: Env,
+  tokenId: string,
+): Promise<AgentDetail | null> {
+  // Agente creado en el marketplace (id "t<chain>-<agentId>") → registro KV propio.
+  if (tokenId.startsWith("t")) {
+    const sub = await getSubmitted(env, tokenId);
+    if (sub) return sub;
+  }
+
+  const cacheKey = `agent:v3:${CHAIN_ID}:${tokenId}`;
   const cached = await env.AGENTS_KV.get(cacheKey, "json");
-  if (cached) return cached as Agent;
+  if (cached) return cached as AgentDetail;
 
   const url = `${env.SCAN_8004_BASE.replace(/\/$/, "")}/agents/${CHAIN_ID}/${encodeURIComponent(tokenId)}`;
   const res = await fetch(url, { headers: upstreamHeaders(env) });
@@ -258,11 +481,171 @@ async function getAgent(env: Env, tokenId: string): Promise<Agent | null> {
   if (!res.ok) throw new Error(`8004scan ${res.status}`);
   const body = (await res.json()) as Record<string, unknown>;
   const data = (body.data ?? body) as Record<string, unknown>;
+
   const agent = normalize(data);
-  await env.AGENTS_KV.put(cacheKey, JSON.stringify(agent), {
+  const reputation = buildReputation(data);
+  const services = await buildServices(data);
+  const detail: AgentDetail = { ...agent, reputation, services };
+
+  await env.AGENTS_KV.put(cacheKey, JSON.stringify(detail), {
     expirationTtl: AGENT_CACHE_SEC,
   });
-  return agent;
+  return detail;
+}
+
+// ------------------------------------------------------------------ //
+// Registro propio de agentes creados ("Crea tu propio agente").
+// El proxy 8004scan solo indexa mainnet (chain 56); los agentes creados en el
+// marketplace son testnet (97) → los guardamos en KV y los fusionamos en el listado
+// con badge de red. El alta onchain la hace el servicio `registrar` (Python).
+// ------------------------------------------------------------------ //
+
+const SUBMITTED_PREFIX = "submitted:";
+const submittedKey = (chainId: number, agentId: string) =>
+  `${SUBMITTED_PREFIX}${chainId}:${agentId}`;
+/** id de marketplace para un agente creado: distinguible de los tokenIds de 8004scan. */
+const submittedId = (chainId: number, agentId: string) => `t${chainId}-${agentId}`;
+const SUBMITTED_ID_RE = /^t(\d+)-(.+)$/;
+
+interface SubmittedInput {
+  name?: unknown;
+  description?: unknown;
+  category?: unknown;
+  agentId?: unknown;
+  ownerAddress?: unknown;
+  endpoint?: unknown;
+  txHash?: unknown;
+  chainId?: unknown;
+  status?: unknown;
+  x402Supported?: unknown;
+}
+
+/** Construye un AgentDetail a partir de la entrada de un agente recién creado. */
+function submittedToDetail(input: SubmittedInput): AgentDetail {
+  const chainId = num(input.chainId, TESTNET_CHAIN_ID);
+  const name = String(input.name ?? "Untitled agent").slice(0, 64);
+  const description = String(input.description ?? "").slice(0, 600);
+  const catIn = typeof input.category === "string" ? input.category : "";
+  const category =
+    (CATEGORIES as readonly string[]).includes(catIn)
+      ? (catIn as Category)
+      : classifyAgent({ name, description });
+  const owner = input.ownerAddress ? String(input.ownerAddress) : undefined;
+  const status = input.status === "registered" ? "registered" : "pending";
+  // agentId onchain si existe; si no (dry-run/pending), id estable derivado del owner.
+  const rawAgentId =
+    input.agentId != null && String(input.agentId) !== ""
+      ? String(input.agentId)
+      : `pending-${(owner ?? "0x0").slice(2, 10)}`;
+  const endpoint = input.endpoint ? String(input.endpoint) : null;
+  const x402 = Boolean(input.x402Supported);
+
+  const agent: Agent = {
+    id: submittedId(chainId, rawAgentId),
+    agentId: `${chainId}:submitted:${rawAgentId}`,
+    tokenId: rawAgentId,
+    chainId,
+    name,
+    description,
+    category,
+    categoryLabel: category ? CATEGORY_LABELS[category] : null,
+    stars: 0,
+    score: 0,
+    avgScore: 0,
+    feedbacks: 0,
+    healthScore: null,
+    isVerified: false,
+    x402Supported: x402,
+    rank: null,
+    networkRank: null,
+    ownerAddress: owner,
+    ownerUsername: null,
+    ownerEns: null,
+    ownerAvatarUrl: null,
+    ownerPublisherTier: null,
+    ownerCertifiedName: null,
+    source: "submitted",
+    network: networkOf(chainId),
+    status,
+    txHash: input.txHash ? String(input.txHash) : undefined,
+  };
+  const reputation: Reputation = {
+    totalScore: 0,
+    rank: null,
+    networkRank: null,
+    health: null,
+    freshness: null,
+    activity: null,
+    popularity: null,
+    metadataCompleteness: null,
+    dimensions: [],
+    feedbacks: 0,
+    avgScore: 0,
+    source: "8004scan",
+  };
+  const services: AgentServices = {
+    a2aEndpoint: endpoint,
+    mcpEndpoint: null,
+    protocolVersion: endpoint ? "0.3.0" : null,
+    skills: [],
+    x402,
+    erc8183: true, // el seller studio expone negotiate/notify_funded (ERC-8183)
+    cardLive: false,
+  };
+  return { ...agent, reputation, services };
+}
+
+/** Persiste un agente creado. Devuelve el detalle almacenado. */
+async function putSubmitted(env: Env, detail: AgentDetail): Promise<void> {
+  await env.AGENTS_KV.put(
+    submittedKey(detail.chainId, detail.tokenId),
+    JSON.stringify(detail),
+  );
+}
+
+/** Lee todos los agentes creados (opcionalmente filtrados por categoría). */
+async function listSubmitted(env: Env, category?: Category): Promise<Agent[]> {
+  const out: Agent[] = [];
+  const listing = await env.AGENTS_KV.list({ prefix: SUBMITTED_PREFIX });
+  for (const k of listing.keys) {
+    const rec = (await env.AGENTS_KV.get(k.name, "json")) as AgentDetail | null;
+    if (!rec) continue;
+    if (category && rec.category !== category) continue;
+    out.push(rec);
+  }
+  return out;
+}
+
+/** Busca un agente creado por su id de marketplace (`t<chain>-<agentId>`). */
+async function getSubmitted(
+  env: Env,
+  marketplaceId: string,
+): Promise<AgentDetail | null> {
+  const m = SUBMITTED_ID_RE.exec(marketplaceId);
+  if (!m) return null;
+  const rec = await env.AGENTS_KV.get(submittedKey(Number(m[1]), m[2]), "json");
+  return (rec as AgentDetail | null) ?? null;
+}
+
+/** POST /v1/submitted — alta de un agente creado en el registro KV. */
+async function handleSubmit(request: Request, env: Env): Promise<Response> {
+  if (env.SUBMIT_TOKEN) {
+    const tok = request.headers.get("x-submit-token");
+    if (tok !== env.SUBMIT_TOKEN)
+      return json({ error: "unauthorized" }, env, 401);
+  }
+  let input: SubmittedInput;
+  try {
+    input = (await request.json()) as SubmittedInput;
+  } catch {
+    return json({ error: "invalid_json" }, env, 400);
+  }
+  if (!input || typeof input.name !== "string" || !input.name.trim())
+    return json({ error: "name_required" }, env, 422);
+
+  const detail = submittedToDetail(input);
+  await putSubmitted(env, detail);
+  return json(detail, env, 201);
 }
 
 // ------------------------------------------------------------------ //
@@ -274,15 +657,29 @@ export default {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders(env) });
     }
-    if (request.method !== "GET") {
-      return json({ error: "method_not_allowed" }, env, 405);
-    }
     if (!(await underRateLimit(request))) {
       return json({ error: "rate_limited" }, env, 429);
     }
 
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
+
+    // Alta de agentes creados ("Crea tu propio agente") — el único endpoint de escritura.
+    if (request.method === "POST") {
+      try {
+        if (path === "/v1/submitted") return await handleSubmit(request, env);
+        return json({ error: "not_found" }, env, 404);
+      } catch (err) {
+        return json(
+          { error: "submit_error", detail: String((err as Error).message) },
+          env,
+          500,
+        );
+      }
+    }
+    if (request.method !== "GET") {
+      return json({ error: "method_not_allowed" }, env, 405);
+    }
 
     try {
       if (path === "/health" || path === "/") {

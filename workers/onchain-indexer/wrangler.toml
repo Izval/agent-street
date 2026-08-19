@@ -1,0 +1,29 @@
+# onchain-indexer — Worker indexer onchain BSC (agent-street).
+# Proyecto SEPARADO del Pages/app; se despliega con `wrangler deploy` desde este dir.
+# Lee datos REALES de un agent_wallet en BSC (chainId 56): balances via RPC público,
+# precios via DexScreener (keyless), trades via BscScan (API key opcional).
+name = "agent-street-onchain-indexer"
+main = "src/index.ts"
+compatibility_date = "2026-08-17"
+
+# Cache de portfolio/trades/precios. Crear los namespaces reales antes del deploy:
+#   wrangler kv namespace create INDEXER_KV
+#   wrangler kv namespace create INDEXER_KV --preview
+# y pegar los ids aquí. Para `wrangler dev`, Miniflare simula KV sin ids reales.
+[[kv_namespaces]]
+binding = "INDEXER_KV"
+id = "REPLACE_WITH_KV_ID"
+preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+
+[vars]
+# CORS: el front (Pages) consumirá este indexer. Ajustar al dominio real en prod.
+ALLOWED_ORIGIN = "*"
+# RPC público BSC mainnet (chainId 56). Keyless. Alternativas si rate-limit:
+#   https://bsc-dataseed1.defibit.io  ·  https://bsc.publicnode.com
+BSC_RPC_URL = "https://bsc-dataseed.bnbchain.org"
+
+# Secret OPCIONAL (no en el repo):  wrangler secret put BSCSCAN_API_KEY
+# /v1/trades usa Etherscan API V2 multichain (chainid=56); api.bscscan.com V1 quedó
+# DEPRECADO. La MISMA key de Etherscan/BscScan sirve. SIN key el upstream responde
+# NOTOK y /v1/trades devuelve { trades:[], count:0 } con 200 (vacío honesto, no error).
+# Sacar key gratis en https://etherscan.io/apis  (una key vale para todas las chains).

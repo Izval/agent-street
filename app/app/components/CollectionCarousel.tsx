@@ -1,0 +1,133 @@
+/**
+ * CollectionCarousel — fila horizontal scroll-snap (DESIGN.md v3 §5.6).
+ *
+ * Encabezado (título + barra de acento + "Ver todos →"), pista `overflow-x-auto
+ * snap-x` de children (AgentCards), flechas que aparecen en hover y desplazan una
+ * página, y fades en los bordes que se desvanecen en los extremos.
+ *
+ * Reemplaza conceptualmente a `CollectionRow`; NO lo borra. SSR-safe: el estado de
+ * scroll (para mostrar/ocultar flechas y fades) se calcula en efectos de cliente.
+ */
+
+import { Children, useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
+
+export function CollectionCarousel({
+  title,
+  seeAllTo,
+  accent,
+  children,
+}: {
+  title: string;
+  seeAllTo?: string;
+  accent?: string;
+  children: React.ReactNode;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+
+  const update = useCallback(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    setCanLeft(el.scrollLeft > 4);
+    setCanRight(el.scrollLeft < max - 4);
+  }, []);
+
+  useEffect(() => {
+    update();
+    const el = trackRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      el.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, [update, children]);
+
+  const page = (dir: 1 | -1) => {
+    const el = trackRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * el.clientWidth * 0.9, behavior: "smooth" });
+  };
+
+  const items = Children.toArray(children);
+
+  return (
+    <section className="group/coll relative">
+      {/* Encabezado. */}
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <span
+            aria-hidden
+            className="h-4 w-1 rounded-[999px]"
+            style={{ background: accent ?? "var(--brand)" }}
+          />
+          <h2 className="text-lg font-semibold text-text">{title}</h2>
+        </div>
+        {seeAllTo && (
+          <Link
+            to={seeAllTo}
+            className="shrink-0 text-sm font-semibold text-text-2 transition-colors hover:text-brand"
+          >
+            Ver todos →
+          </Link>
+        )}
+      </div>
+
+      {/* Pista + fades + flechas. */}
+      <div className="relative">
+        <div
+          ref={trackRef}
+          className="flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          role="list"
+          aria-label={title}
+        >
+          {items.map((child, i) => (
+            <div
+              key={i}
+              role="listitem"
+              className="w-[288px] shrink-0 snap-start"
+            >
+              {child}
+            </div>
+          ))}
+        </div>
+
+        {/* Fades de borde. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-bg to-transparent transition-opacity duration-200"
+          style={{ opacity: canLeft ? 1 : 0 }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-bg to-transparent transition-opacity duration-200"
+          style={{ opacity: canRight ? 1 : 0 }}
+        />
+
+        {/* Flechas (aparecen en hover; deshabilitadas en los extremos). */}
+        <button
+          type="button"
+          onClick={() => page(-1)}
+          disabled={!canLeft}
+          aria-label="Desplazar a la izquierda"
+          className="glass-hair absolute left-2 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-[999px] text-text opacity-0 transition-opacity duration-200 hover:text-brand focus-visible:opacity-100 disabled:pointer-events-none disabled:opacity-0 group-hover/coll:opacity-100"
+        >
+          ‹
+        </button>
+        <button
+          type="button"
+          onClick={() => page(1)}
+          disabled={!canRight}
+          aria-label="Desplazar a la derecha"
+          className="glass-hair absolute right-2 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-[999px] text-text opacity-0 transition-opacity duration-200 hover:text-brand focus-visible:opacity-100 disabled:pointer-events-none disabled:opacity-0 group-hover/coll:opacity-100"
+        >
+          ›
+        </button>
+      </div>
+    </section>
+  );
+}

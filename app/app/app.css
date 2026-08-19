@@ -99,6 +99,293 @@
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * v2 — tokens App Store: glass, acentos por aisle, paleta de charts.
+ * (DESIGN.md v2 §Glass, §Aisles, §Charts). Amarillo sigue escaso; estos
+ * acentos son sutiles y NO se usan como fondo de secciones.
+ * ------------------------------------------------------------------ */
+
+/* Acentos por aisle (sutiles; glyph del sidebar, subrayado de sección).
+   Invariantes al tema; elegidos para el surface oscuro canónico. */
+:root {
+  --accent-trading: #4c8dff;
+  --accent-defi: #9085e9;
+  --accent-nft: #d55181;
+  --accent-rwa: #199e70;
+  --accent-infra: #9aa4b2;
+  --accent-payments: #d95926;
+  --accent-social: #22b8cf;
+
+  /* Paleta categórica de series (allocation, bar-compare). Steps LIGHT
+     (validados en el skill dataviz). NO usar para polaridad → eso es up/down. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+  --series-neutral: #848e9c; /* Cash/otros */
+
+  /* Glass (light) */
+  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --glass-blur: 16px;
+  --hero-glow: radial-gradient(
+    circle at 30% 20%,
+    rgba(240, 185, 11, 0.1),
+    transparent 60%
+  );
+}
+
+/* Dark canónico: series stepped para el surface oscuro (validados como set:
+   todos los checks del validador pasan sobre #181A20). */
+:root[data-theme="dark"],
+html[data-theme="dark"] {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+  --series-neutral: #848e9c;
+
+  --glass-bg: rgba(24, 26, 32, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-blur: 18px;
+  --hero-glow: radial-gradient(
+    circle at 30% 20%,
+    rgba(240, 185, 11, 0.14),
+    transparent 60%
+  );
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+    --glass-bg: rgba(24, 26, 32, 0.55);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --hero-glow: radial-gradient(
+      circle at 30% 20%,
+      rgba(240, 185, 11, 0.14),
+      transparent 60%
+    );
+  }
+}
+
+/* Superficie glass reutilizable (bloques grandes / hero / sidebar flotante). */
+.glass {
+  background-color: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+/* Fallback animado del video banner: gradiente marca en deriva lenta. */
+.hero-anim {
+  background:
+    var(--hero-glow),
+    linear-gradient(135deg, #12151b 0%, #0b0e11 55%, #171a12 100%);
+  background-size: 160% 160%, 100% 100%;
+  animation: hero-drift 18s ease-in-out infinite alternate;
+}
+@keyframes hero-drift {
+  from {
+    background-position: 0% 0%, 0 0;
+  }
+  to {
+    background-position: 100% 100%, 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-anim {
+    animation: none;
+  }
+}
+
+/* ================================================================== *
+ * v3 — sistema "mission control": glass 3-tiers, glow, motion.
+ * (DESIGN.md v3). Elegante ≠ lechoso: cada tier con blur/borde/highlight.
+ * ================================================================== */
+
+:root {
+  /* Motion */
+  --ease-out-expo: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur-micro: 120ms;
+  --dur-std: 200ms;
+  --dur-enter: 320ms;
+
+  /* Elevación susurrada (v3) */
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --elev-2: 0 8px 24px rgba(0, 0, 0, 0.36);
+  --elev-hero: 0 24px 60px rgba(0, 0, 0, 0.5);
+
+  /* Glass — light (secundario) */
+  --frost-bg: rgba(255, 255, 255, 0.6);
+  --frost-border: rgba(0, 0, 0, 0.08);
+  --frost-highlight: rgba(255, 255, 255, 0.7);
+  --panel-bg: rgba(250, 250, 250, 0.7);
+  --panel-border: rgba(0, 0, 0, 0.06);
+  --hair-bg: rgba(245, 245, 245, 0.6);
+  --hair-border: rgba(0, 0, 0, 0.06);
+
+  --glow-brand: radial-gradient(
+    circle at 50% 0%,
+    rgba(240, 185, 11, 0.12),
+    transparent 60%
+  );
+}
+
+:root[data-theme="dark"] {
+  /* Glass — dark canónico */
+  --frost-bg: rgba(11, 14, 17, 0.55);
+  --frost-border: rgba(255, 255, 255, 0.1);
+  --frost-highlight: rgba(255, 255, 255, 0.12);
+  --panel-bg: rgba(24, 26, 32, 0.6);
+  --panel-border: rgba(255, 255, 255, 0.07);
+  --hair-bg: rgba(30, 35, 41, 0.5);
+  --hair-border: rgba(255, 255, 255, 0.06);
+  --glow-brand: radial-gradient(
+    circle at 50% 0%,
+    rgba(240, 185, 11, 0.14),
+    transparent 60%
+  );
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --frost-bg: rgba(11, 14, 17, 0.55);
+    --frost-border: rgba(255, 255, 255, 0.1);
+    --frost-highlight: rgba(255, 255, 255, 0.12);
+    --panel-bg: rgba(24, 26, 32, 0.6);
+    --panel-border: rgba(255, 255, 255, 0.07);
+    --hair-bg: rgba(30, 35, 41, 0.5);
+    --hair-border: rgba(255, 255, 255, 0.06);
+  }
+}
+
+/* Tiers de glass */
+.glass-frost {
+  background-color: var(--frost-bg);
+  border: 1px solid var(--frost-border);
+  backdrop-filter: blur(28px) saturate(1.2);
+  -webkit-backdrop-filter: blur(28px) saturate(1.2);
+  box-shadow: inset 0 1px 0 var(--frost-highlight), var(--elev-hero);
+}
+.glass-panel {
+  background-color: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: inset 0 1px 0 var(--frost-highlight), var(--elev-2);
+}
+.glass-hair {
+  background-color: var(--hair-bg);
+  border: 1px solid var(--hair-border);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Gradientes de fondo por aisle (CategoryTile). color-mix → oscuro tintado. */
+.grad-trading { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-trading) 20%, #0b0e11), #0b0e11 70%); }
+.grad-defi { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-defi) 20%, #0b0e11), #0b0e11 70%); }
+.grad-nft { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-nft) 20%, #0b0e11), #0b0e11 70%); }
+.grad-rwa { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-rwa) 20%, #0b0e11), #0b0e11 70%); }
+.grad-infra { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-infra) 20%, #0b0e11), #0b0e11 70%); }
+.grad-payments { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-payments) 20%, #0b0e11), #0b0e11 70%); }
+.grad-social { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-social) 20%, #0b0e11), #0b0e11 70%); }
+
+/* Campo cinematográfico de fondo (profundidad sin ruido). */
+.field-glow {
+  background-image:
+    radial-gradient(1200px 600px at 12% -10%, rgba(240, 185, 11, 0.06), transparent 60%),
+    radial-gradient(1000px 520px at 100% 0%, rgba(30, 174, 219, 0.05), transparent 55%);
+}
+
+/* Glow de marca (hero, insignia flagship, activo). Escaso. */
+.glow-brand { background-image: var(--glow-brand); }
+
+/* Scroll-reveal (JS añade .reveal-in al entrar en viewport). */
+.reveal {
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity var(--dur-enter) var(--ease-out-expo),
+    transform var(--dur-enter) var(--ease-out-expo);
+}
+.reveal-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* Skeleton shimmer (sin spinners). */
+.shimmer {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--surface-2);
+}
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.06),
+    transparent
+  );
+  animation: shimmer 1.2s infinite;
+}
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+
+/* Live pulse (● en vivo). */
+.live-dot {
+  position: relative;
+}
+.live-dot::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.4;
+  animation: live-pulse 2s ease-out infinite;
+}
+@keyframes live-pulse {
+  0% { transform: scale(0.6); opacity: 0.5; }
+  70% { transform: scale(1.8); opacity: 0; }
+  100% { opacity: 0; }
+}
+
+/* Ken Burns lento para media del hero. */
+.kenburns {
+  animation: kenburns 8s ease-out both;
+}
+@keyframes kenburns {
+  from { transform: scale(1.06); }
+  to { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .shimmer::after,
+  .live-dot::before,
+  .kenburns { animation: none; }
+}
+
 /* --- Base --- */
 html {
   color-scheme: dark;
@@ -114,6 +401,12 @@ body {
   font-family: var(--font-sans);
   font-weight: 500;
   -webkit-font-smoothing: antialiased;
+  /* Campo cinematográfico (v3): profundidad sin ruido, estático. */
+  background-image:
+    radial-gradient(1200px 600px at 12% -10%, rgba(240, 185, 11, 0.06), transparent 60%),
+    radial-gradient(1000px 520px at 100% 0%, rgba(30, 174, 219, 0.05), transparent 55%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
 }
 
 /* Los números mandan: numerales tabulares en datos (DESIGN §1, §3). */

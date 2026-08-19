@@ -52,6 +52,12 @@
 - ✅ Ejecución onchain: **BNBAgent SDK** como base (identidad ERC-8004 + ERC-8183 + sessions/x402;
   desbloquea bounty Altana). TermiX MCP como transporte de ejecución opcional/rápido. No es "uno u otro".
 - ✅ IVL se lista **dos veces**: como Agent (Rebalancer) y como Skill (`skills/ivl/SKILL.md` existe).
+- ✅ **Separación IVL ↔ Agent-Street (regla dura, ver `CLAUDE.md` §2):** Agent-Street es el
+  **entregable para BNB Chain** (lo que se somete / pueden adoptar); IVL es **activo nuestro
+  SEPARADO** (`third_city` / `api.zvlint.com`). IVL va **destacado por mérito mientras sea el mejor
+  de su categoría**, pero acoplado **solo como listing** vía el seam HTTP + 8004scan — **nunca como
+  código integrado** en el core. El marketplace debe funcionar **sin IVL**; entregar agent-street
+  **no** debe filtrar el motor/IP de IVL. `agent-ivl/` es un listing de ejemplo, separable.
 
 ## 2. Decisión abierta
 - ✅ **Par inicial** del agente IVL en testnet: **BNB-USDT** (confirmado 17-ago-2026).

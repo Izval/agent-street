@@ -21,3 +21,7 @@ SCAN_8004_BASE = "https://8004scan.io/api/v1/public"
 
 # Secret opcional (no en el repo):  wrangler secret put SCAN_8004_API_KEY
 # La API funciona ANÓNIMA (~10 req/min); la key Pro solo sube el rate-limit.
+
+# Secret opcional para "Crea tu propio agente":  wrangler secret put SUBMIT_TOKEN
+# Si se setea, protege el POST /v1/submitted (el registrar/front debe enviar el header
+# `x-submit-token`). Ausente ⇒ el endpoint queda abierto (ok en dev local).
