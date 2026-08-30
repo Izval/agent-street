@@ -1,14 +1,14 @@
 /**
- * MarketplaceChrome — barra de filtros sticky (linaje OpenSea · plan §5.2).
- * Fila 1: pills de aisle (All → /, cada aisle → /aisle/:id) con scroll horizontal.
- * Fila 2: chip de red BSC (estático) + segmented controls (Agents/Skills/Tokens,
- * rango 1h/24h/7d, grid/list, sort) que editan los search params de la ruta.
+ * MarketplaceChrome — sticky filter bar (OpenSea lineage · plan §5.2).
+ * Row 1: aisle pills (All → /, each aisle → /aisle/:id) with horizontal scroll.
+ * Row 2: BSC network chip (static) + segmented controls (Agents/Skills/Tokens,
+ * 1h/24h/7d range, grid/list, sort) that edit the route's search params.
  *
- * Loader-driven: los valores actuales llegan por props (del loader); cada control
- * escribe el search param correspondiente (useSearchParams). Las pills de aisle
- * son <Link> (navegación de ruta). Sticky con blur reforzado al pegarse
- * (IntersectionObserver sobre un sentinel → SSR-safe, sólo en efecto).
- * A11y: role="radiogroup"/"radio" con navegación por flechas (roving tabindex).
+ * Loader-driven: current values arrive via props (from the loader); each control
+ * writes the matching search param (useSearchParams). The aisle pills
+ * are <Link>s (route navigation). Sticky with reinforced blur once stuck
+ * (IntersectionObserver on a sentinel → SSR-safe, only in effect).
+ * A11y: role="radiogroup"/"radio" with arrow-key navigation (roving tabindex).
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -36,7 +36,7 @@ export interface MarketplaceChromeProps {
 interface SegOption<T extends string> {
   value: T;
   label: ReactNode;
-  /** Etiqueta accesible si `label` no es texto (p.ej. un glyph). */
+  /** Accessible label when `label` is not text (e.g. a glyph). */
   srLabel?: string;
 }
 
@@ -101,9 +101,14 @@ function useStuck() {
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || typeof IntersectionObserver === "undefined") return;
+    // The bar parks below the sticky header, so "stuck" must fire when the
+    // sentinel passes the header's bottom edge — not the viewport top.
+    const headerH =
+      getComputedStyle(document.documentElement).getPropertyValue("--header-h").trim() ||
+      "109px";
     const io = new IntersectionObserver(
       ([entry]) => setStuck(!entry.isIntersecting),
-      { threshold: [1] },
+      { threshold: [1], rootMargin: `-${headerH} 0px 0px 0px` },
     );
     io.observe(el);
     return () => io.disconnect();
@@ -129,13 +134,13 @@ const WINDOW_OPTS: SegOption<TrendingWindow>[] = [
   { value: "7d", label: "7d" },
 ];
 const VIEW_OPTS: SegOption<View>[] = [
-  { value: "grid", label: "▦", srLabel: "Vista de cuadrícula" },
-  { value: "list", label: "≣", srLabel: "Vista de lista" },
+  { value: "grid", label: "▦", srLabel: "Grid view" },
+  { value: "list", label: "≣", srLabel: "List view" },
 ];
 const SORT_OPTS: SegOption<Sort>[] = [
   { value: "trending", label: "Trending" },
   { value: "score", label: "Score" },
-  { value: "new", label: "Nuevos" },
+  { value: "new", label: "New" },
   { value: "portfolio", label: "Portfolio" },
 ];
 
@@ -172,16 +177,16 @@ export function MarketplaceChrome({
 
   return (
     <>
-      {/* Sentinel: cuando sale de vista, la barra está "pegada". */}
+      {/* Sentinel: once it scrolls out of view, the bar is "stuck". */}
       <div ref={sentinelRef} aria-hidden className="h-px w-full" />
       <div
-        className={`sticky top-0 z-30 flex flex-col gap-2.5 py-2.5 transition-shadow duration-[var(--dur-std)] ${
+        className={`sticky top-[var(--header-h)] z-20 flex flex-col gap-2.5 py-2.5 transition-shadow duration-[var(--dur-std)] ${
           stuck ? "glass-panel -mx-2 px-2 shadow-[var(--elev-2)]" : ""
         } ${className}`}
       >
-        {/* Fila 1: pills de aisle */}
+        {/* Row 1: category pills (level 1) */}
         <nav
-          aria-label="Filtrar por aisle"
+          aria-label="Filter by category"
           className="flex items-center gap-2 overflow-x-auto pb-0.5"
         >
           <Link
@@ -203,7 +208,7 @@ export function MarketplaceChrome({
           ))}
         </nav>
 
-        {/* Fila 2: red + toggles */}
+        {/* Row 2: network + toggles */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="glass-hair inline-flex items-center gap-1.5 rounded-[999px] px-2.5 py-1 text-xs font-semibold text-text-2">
             <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-brand" />
@@ -211,7 +216,7 @@ export function MarketplaceChrome({
           </span>
 
           <Segmented
-            ariaLabel="Tipo de listado"
+            ariaLabel="Listing type"
             value={tab}
             options={TAB_OPTS}
             onChange={(v) => setParam("tab", v)}
@@ -219,19 +224,19 @@ export function MarketplaceChrome({
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <Segmented
-              ariaLabel="Ventana de tiempo"
+              ariaLabel="Time window"
               value={win}
               options={WINDOW_OPTS}
               onChange={(v) => setParam("window", v)}
             />
             <Segmented
-              ariaLabel="Orden"
+              ariaLabel="Sort"
               value={sort}
               options={SORT_OPTS}
               onChange={(v) => setParam("sort", v)}
             />
             <Segmented
-              ariaLabel="Densidad de vista"
+              ariaLabel="View density"
               value={view}
               options={VIEW_OPTS}
               onChange={(v) => (onViewChange ? onViewChange(v) : setParam("view", v))}

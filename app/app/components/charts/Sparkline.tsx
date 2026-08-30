@@ -1,7 +1,7 @@
 /**
- * Sparkline — mini línea de tendencia sin ejes (DESIGN.md v2 §15).
- * Glifo compacto para KPI tiles: línea 2px (non-scaling-stroke) + end-dot.
- * Excepción de hover válida (stat-tile sin plot); SSR-safe.
+ * Sparkline — mini trend line without axes (DESIGN.md v2 §15).
+ * Compact glyph for KPI tiles: 2px line (non-scaling-stroke) + end-dot.
+ * Valid hover exception (stat-tile without a plot); SSR-safe.
  */
 
 import { useId } from "react";
@@ -38,7 +38,7 @@ export function Sparkline({
         width={width}
         height={height}
         role="img"
-        aria-label="Sin datos"
+        aria-label="No data"
         style={{ display: "block" }}
       >
         <line
@@ -74,7 +74,7 @@ export function Sparkline({
       width={width}
       height={height}
       role="img"
-      aria-label={`Tendencia de ${n} puntos`}
+      aria-label={`Trend of ${n} points`}
       style={{ display: "block", overflow: "visible" }}
     >
       <defs>

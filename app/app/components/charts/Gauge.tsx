@@ -1,8 +1,8 @@
 /**
- * Gauge — health factor de préstamos (DESIGN.md v2 §15).
- * Semicírculo con zonas de color (polaridad: down/brand/up) + aguja al valor.
- * Zonas por defecto: <1.1 down · 1.1–1.5 brand · >1.5 up. Valor grande tabular
- * teñido por la zona activa. SVG puro, uniform-scaled, SSR-safe.
+ * Gauge — lending health factor (DESIGN.md v2 §15).
+ * Semicircle with color zones (polarity: down/brand/up) + needle at the value.
+ * Default zones: <1.1 down · 1.1–1.5 brand · >1.5 up. Large tabular value
+ * tinted by the active zone. Pure SVG, uniform-scaled, SSR-safe.
  */
 
 type ZoneTone = "down" | "brand" | "up";
@@ -35,7 +35,7 @@ const CY = 100;
 const R = 78;
 const STROKE = 14;
 
-// θ: 180° (izquierda) → 0° (derecha), math estándar (y hacia arriba en pantalla).
+// θ: 180° (left) → 0° (right), standard math (y pointing up on screen).
 function pointAt(r: number, f: number): [number, number] {
   const theta = Math.PI * (1 - Math.min(1, Math.max(0, f)));
   return [CX + r * Math.cos(theta), CY - r * Math.sin(theta)];
@@ -44,7 +44,7 @@ function pointAt(r: number, f: number): [number, number] {
 function arc(f0: number, f1: number): string {
   const [x0, y0] = pointAt(R, f0);
   const [x1, y1] = pointAt(R, f1);
-  // sweep=0 abomba hacia arriba (semicírculo superior).
+  // sweep=0 bulges upward (upper semicircle).
   return `M${x0} ${y0}A${R} ${R} 0 0 0 ${x1} ${y1}`;
 }
 
@@ -60,9 +60,9 @@ export function Gauge({ value, min = 0, max = 3, zones }: GaugeProps) {
         ];
 
   const f = (value - min) / span;
-  const fGap = STROKE * 0.16 / (Math.PI * R); // ~2px de superficie entre zonas
+  const fGap = STROKE * 0.16 / (Math.PI * R); // ~2px of surface between zones
 
-  // construir segmentos en f-space, recortando gaps.
+  // build segments in f-space, trimming gaps.
   let prev = min;
   const segs = z.map((zone, i) => {
     const from = prev;
@@ -73,7 +73,7 @@ export function Gauge({ value, min = 0, max = 3, zones }: GaugeProps) {
     return { d: f1 > f0 ? arc(f0, f1) : "", tone: zone.tone };
   });
 
-  // zona activa para teñir el valor.
+  // active zone for tinting the value.
   const activeTone: ZoneTone =
     z.find((zone) => value <= zone.upTo)?.tone ?? z[z.length - 1].tone;
 
@@ -86,10 +86,10 @@ export function Gauge({ value, min = 0, max = 3, zones }: GaugeProps) {
         width="100%"
         height="100%"
         role="img"
-        aria-label={`Health factor ${value} (rango ${min}–${max})`}
+        aria-label={`Health factor ${value} (range ${min}–${max})`}
         style={{ display: "block" }}
       >
-        {/* track base recesivo */}
+        {/* recessive base track */}
         <path
           d={arc(0, 1)}
           fill="none"
@@ -109,7 +109,7 @@ export function Gauge({ value, min = 0, max = 3, zones }: GaugeProps) {
             />
           ) : null
         )}
-        {/* aguja */}
+        {/* needle */}
         <line
           x1={CX}
           y1={CY}

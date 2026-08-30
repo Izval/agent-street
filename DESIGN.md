@@ -64,7 +64,7 @@ define primero en `:root` (light) y se re-mapea en el bloque dark.
 ### 2.3 Reglas de color
 - **Verde/rojo son solo para datos.** Nunca verde=marca. `--up`/`--down` jamás decorativos.
 - El amarillo sobre negro debe llevar texto **`--bg` (#0B0E11)**, nunca blanco (contraste + marca).
-- Gradiente de marca permitido y escaso: `radial-gradient(#F0B90B, #FCD535)` para hero/insignia flagship.
+- Gradiente de marca permitido y escaso: `radial-gradient(#F0B90B, #FCD535)` para hero/insignia destacada.
 
 ---
 
@@ -144,10 +144,11 @@ CTA pill amarillo derecha. Respetar reglas de logo (§7).
 - **Grid del marketplace:** 3 col (desktop) → 2 (768px) → 1 (600px), gap 24.
 - **Data Quality visible:** cada agente muestra datos reales de 8004scan (reputación, tx, PnL) con
   numerales tabulares — es criterio de juzgado, hazlo protagonista visual.
-- **Flagship IVL:** insignia con gradiente de marca sutil; badge "Rebalancing". Aparece en tab Agents y
-  tab Skills.
-- **Score IVL:** medidor 0–100; ≥70 `--up`, 40–69 `--brand`, <40 `--down`. Nunca inventar la escala de
-  color fuera de estos cortes.
+- **IVL como listing normal:** aparece en tab Agents (Rebalancing) y tab Skills como cualquier otro
+  listing — **sin insignia ni gradiente especial**. El código no lo trata distinto; se destaca solo por
+  mérito (score/demanda), nunca hardcodeado.
+- **Score meter:** medidor 0–100 (`scoreTone`, `app/app/lib/score.ts`); ≥70 `--up`, 40–69 `--brand`,
+  <40 `--down`. Nunca inventar la escala de color fuera de estos cortes.
 
 ---
 
@@ -236,7 +237,7 @@ se vea igual que Yield. Mapeo `TemplateKind` → contenido:
 | Template | KPIs primarios | Chart(s) | Acento |
 |---|---|---|---|
 | `trading` (Grid★, DCA, Momentum…) | Win rate · PnL · Volumen · #trades | Equity area + trades | trading |
-| `clmm` (Rebalancing★, IVL) | IVL score · Rango LP · APR · Time-in-range | ScoreMeter + rango | defi |
+| `clmm` (Rebalancing★) | Score · Reviews · Portfolio · Rango (live desde el endpoint) | ScoreMeter | defi |
 | `yield` (Yield★, Lending, LST) | APY · TVL · Protocolo | BarCompare | defi |
 | `health` (Health★) | Health factor · Dist. liquidación · Colateral | Gauge | defi |
 | `nft` | Floor · Volumen · Holdings | Sparkline floor | nft |
@@ -257,8 +258,9 @@ Orden de paneles (algunos dependen de la plantilla). Cada panel **rotula su fuen
 7. **Hire CTA** (x402 — se cablea en Fase 3). Sidebar sticky con ScoreMeter + botón.
 
 ## 18. Honestidad de datos (criterio de juzgado "Data Quality")
-- Badge de fuente en cada dato: `8004scan` (● live), `onchain` (indexer), `IVL` (api.zvlint.com),
-  `curated` (seed fallback). Sin proxy/indexer → seed, nunca en blanco.
+- Badge de fuente en cada dato: `8004scan` (● live), `onchain` (indexer), `curated` (seed fallback).
+  Sin proxy/indexer → seed, nunca en blanco. (El marketplace **no** consume `api.zvlint.com`: IVL es un
+  listing más, sin fuente de datos propia en el código.)
 - No presentar estimaciones como PnL real exacto; rotular "since indexed" / "aprox.". Donut = balances
   reales × precio (CMC); si falta precio de un token, marcarlo, no omitirlo del total en silencio.
 
@@ -279,7 +281,7 @@ Orden de paneles (algunos dependen de la plantilla). Cada panel **rotula su fuen
 
 ## 20. Profundidad y glow
 - Fondo `body` = campo cinematográfico estático (radiales marca+azul muy tenues). `.glow-brand` (amarillo
-  8–14%) **solo** en hero, insignia flagship y activo. Elevación por capas: bg→surface→panel→frost→modal.
+  8–14%) **solo** en hero, insignia destacada y activo. Elevación por capas: bg→surface→panel→frost→modal.
 - `.grad-{aisle}` = gradiente oscuro tintado con el accent del aisle, para el fondo de `CategoryTile`.
 
 ## 21. Motion (tokens `--ease-out-expo`, `--dur-*`; siempre reduced-motion)

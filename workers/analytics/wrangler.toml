@@ -15,12 +15,12 @@ compatibility_date = "2026-08-17"
 # y pegar los ids aquí. Para `wrangler dev --local`, Miniflare simula KV sin ids reales.
 [[kv_namespaces]]
 binding = "ANALYTICS_KV"
-id = "REPLACE_WITH_KV_ID"
-preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+id = "d846cf6864d941bfb44a3d6d5adcabf5"
+preview_id = "f79a3a06315e4e1c8d39b415d430e3fe"
 
 [vars]
 # CORS: el front (Pages) POSTeará eventos y leerá trending. Ajustar al dominio real en prod.
 ALLOWED_ORIGIN = "*"
 # Base del Worker 8004-proxy para enriquecer name/imageUrl/category de los top N.
-# En dev el proxy corre en :8788; si no está vivo, el fallback name=agentId funciona.
-PROXY_8004_URL = "http://localhost:8788"
+# Prod: el 8004-proxy desplegado. (Dev local: http://localhost:8788.)
+PROXY_8004_URL = "https://agent-street-8004-proxy.zevlat.workers.dev"

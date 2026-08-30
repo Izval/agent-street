@@ -1,20 +1,20 @@
 @import "tailwindcss";
 
 /* ------------------------------------------------------------------ *
- * Agent-Street — sistema de design tokens (fuente de verdad: DESIGN.md)
- * Dark-first. Los tokens semánticos viven como CSS vars conmutables
- * (--bg, --brand, …) y se exponen a Tailwind vía @theme (bg-bg, text-up…).
+ * Agent-Street — design tokens system (source of truth: DESIGN.md)
+ * Dark-first. Semantic tokens live as switchable CSS vars
+ * (--bg, --brand, …) and are exposed to Tailwind via @theme (bg-bg, text-up…).
  * ------------------------------------------------------------------ */
 
 @theme {
-  /* Tipografía — IBM Plex (base open-source de BinancePlex), self-hosted a futuro.
-     Por ahora stack con fallback de sistema; DESIGN.md §10 prohíbe CDN. */
+  /* Typography — IBM Plex (open-source base of BinancePlex), self-hosted in the future.
+     For now a stack with system fallback; DESIGN.md §10 forbids CDN. */
   --font-sans: "IBM Plex Sans", system-ui, "Segoe UI", Roboto, Helvetica,
     Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* Colores semánticos → apuntan a las CSS vars conmutables por tema.
-     Genera utilidades: bg-bg, bg-surface, text-text, text-up, border-border… */
+  /* Semantic colors → point to the theme-switchable CSS vars.
+     Generates utilities: bg-bg, bg-surface, text-text, text-up, border-border… */
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
@@ -30,19 +30,19 @@
   --color-down: var(--down);
   --color-focus: var(--focus);
 
-  /* Radios (DESIGN §4) */
+  /* Radii (DESIGN §4) */
   --radius-sm: 4px;
   --radius-DEFAULT: 8px;
   --radius-lg: 12px;
   --radius-pill: 999px;
 
-  /* Sombras susurradas (DESIGN §4) */
+  /* Whispered shadows (DESIGN §4) */
   --shadow-rest: 0 1px 2px rgba(0, 0, 0, 0.24);
   --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.32);
   --shadow-modal: 0 16px 40px rgba(0, 0, 0, 0.5);
 }
 
-/* --- Paleta light (secundaria) --- */
+/* --- Light palette (secondary) --- */
 :root {
   --brand: #f0b90b;
   --brand-bright: #fcd535;
@@ -61,11 +61,15 @@
   --up: #0ecb81;
   --down: #f6465d;
   --focus: #1eaedb;
+
+  /* Sticky top header height (row 1 = h-16 + novelties bar = h-11 + borders).
+     In-page sticky bars offset by this so they park below the header. */
+  --header-h: 109px;
 }
 
-/* --- Paleta dark (canónica) --- se aplica cuando:
-   (a) el producto la fuerza con [data-theme="dark"] (default, ver root.tsx), o
-   (b) el sistema prefiere dark y no hay override explícito a light. */
+/* --- Dark palette (canonical) --- applies when:
+   (a) the product forces it with [data-theme="dark"] (default, see root.tsx), or
+   (b) the system prefers dark and there is no explicit override to light. */
 :root[data-theme="dark"] {
   --brand: #f0b90b;
   --brand-bright: #fcd535;
@@ -100,13 +104,13 @@
 }
 
 /* ------------------------------------------------------------------ *
- * v2 — tokens App Store: glass, acentos por aisle, paleta de charts.
- * (DESIGN.md v2 §Glass, §Aisles, §Charts). Amarillo sigue escaso; estos
- * acentos son sutiles y NO se usan como fondo de secciones.
+ * v2 — App Store tokens: glass, per-aisle accents, charts palette.
+ * (DESIGN.md v2 §Glass, §Aisles, §Charts). Yellow stays scarce; these
+ * accents are subtle and are NOT used as section backgrounds.
  * ------------------------------------------------------------------ */
 
-/* Acentos por aisle (sutiles; glyph del sidebar, subrayado de sección).
-   Invariantes al tema; elegidos para el surface oscuro canónico. */
+/* Per-aisle accents (subtle; sidebar glyph, section underline).
+   Theme-invariant; chosen for the canonical dark surface. */
 :root {
   --accent-trading: #4c8dff;
   --accent-defi: #9085e9;
@@ -116,8 +120,8 @@
   --accent-payments: #d95926;
   --accent-social: #22b8cf;
 
-  /* Paleta categórica de series (allocation, bar-compare). Steps LIGHT
-     (validados en el skill dataviz). NO usar para polaridad → eso es up/down. */
+  /* Categorical series palette (allocation, bar-compare). LIGHT steps
+     (validated in the dataviz skill). Do NOT use for polarity → that is up/down. */
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --series-3: #1baf7a;
@@ -126,7 +130,7 @@
   --series-6: #008300;
   --series-7: #4a3aa7;
   --series-8: #e34948;
-  --series-neutral: #848e9c; /* Cash/otros */
+  --series-neutral: #848e9c; /* Cash/other */
 
   /* Glass (light) */
   --glass-bg: rgba(255, 255, 255, 0.6);
@@ -139,8 +143,8 @@
   );
 }
 
-/* Dark canónico: series stepped para el surface oscuro (validados como set:
-   todos los checks del validador pasan sobre #181A20). */
+/* Canonical dark: series stepped for the dark surface (validated as a set:
+   all validator checks pass on #181A20). */
 :root[data-theme="dark"],
 html[data-theme="dark"] {
   --series-1: #3987e5;
@@ -183,7 +187,7 @@ html[data-theme="dark"] {
   }
 }
 
-/* Superficie glass reutilizable (bloques grandes / hero / sidebar flotante). */
+/* Reusable glass surface (large blocks / hero / floating sidebar). */
 .glass {
   background-color: var(--glass-bg);
   border: 1px solid var(--glass-border);
@@ -191,7 +195,7 @@ html[data-theme="dark"] {
   -webkit-backdrop-filter: blur(var(--glass-blur));
 }
 
-/* Fallback animado del video banner: gradiente marca en deriva lenta. */
+/* Animated fallback for the video banner: brand gradient in slow drift. */
 .hero-anim {
   background:
     var(--hero-glow),
@@ -214,8 +218,8 @@ html[data-theme="dark"] {
 }
 
 /* ================================================================== *
- * v3 — sistema "mission control": glass 3-tiers, glow, motion.
- * (DESIGN.md v3). Elegante ≠ lechoso: cada tier con blur/borde/highlight.
+ * v3 — "mission control" system: 3-tier glass, glow, motion.
+ * (DESIGN.md v3). Elegant != milky: each tier with blur/border/highlight.
  * ================================================================== */
 
 :root {
@@ -225,12 +229,12 @@ html[data-theme="dark"] {
   --dur-std: 200ms;
   --dur-enter: 320ms;
 
-  /* Elevación susurrada (v3) */
+  /* Whispered elevation (v3) */
   --elev-1: 0 1px 2px rgba(0, 0, 0, 0.24);
   --elev-2: 0 8px 24px rgba(0, 0, 0, 0.36);
   --elev-hero: 0 24px 60px rgba(0, 0, 0, 0.5);
 
-  /* Glass — light (secundario) */
+  /* Glass — light (secondary) */
   --frost-bg: rgba(255, 255, 255, 0.6);
   --frost-border: rgba(0, 0, 0, 0.08);
   --frost-highlight: rgba(255, 255, 255, 0.7);
@@ -247,7 +251,7 @@ html[data-theme="dark"] {
 }
 
 :root[data-theme="dark"] {
-  /* Glass — dark canónico */
+  /* Glass — canonical dark */
   --frost-bg: rgba(11, 14, 17, 0.55);
   --frost-border: rgba(255, 255, 255, 0.1);
   --frost-highlight: rgba(255, 255, 255, 0.12);
@@ -274,7 +278,7 @@ html[data-theme="dark"] {
   }
 }
 
-/* Tiers de glass */
+/* Glass tiers */
 .glass-frost {
   background-color: var(--frost-bg);
   border: 1px solid var(--frost-border);
@@ -296,7 +300,7 @@ html[data-theme="dark"] {
   -webkit-backdrop-filter: blur(8px);
 }
 
-/* Gradientes de fondo por aisle (CategoryTile). color-mix → oscuro tintado. */
+/* Per-aisle background gradients (CategoryTile). color-mix → tinted dark. */
 .grad-trading { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-trading) 20%, #0b0e11), #0b0e11 70%); }
 .grad-defi { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-defi) 20%, #0b0e11), #0b0e11 70%); }
 .grad-nft { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-nft) 20%, #0b0e11), #0b0e11 70%); }
@@ -305,17 +309,17 @@ html[data-theme="dark"] {
 .grad-payments { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-payments) 20%, #0b0e11), #0b0e11 70%); }
 .grad-social { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-social) 20%, #0b0e11), #0b0e11 70%); }
 
-/* Campo cinematográfico de fondo (profundidad sin ruido). */
+/* Cinematic background field (depth without noise). */
 .field-glow {
   background-image:
     radial-gradient(1200px 600px at 12% -10%, rgba(240, 185, 11, 0.06), transparent 60%),
     radial-gradient(1000px 520px at 100% 0%, rgba(30, 174, 219, 0.05), transparent 55%);
 }
 
-/* Glow de marca (hero, insignia flagship, activo). Escaso. */
+/* Brand glow (hero, flagship badge, active). Scarce. */
 .glow-brand { background-image: var(--glow-brand); }
 
-/* Scroll-reveal (JS añade .reveal-in al entrar en viewport). */
+/* Scroll-reveal (JS adds .reveal-in when entering the viewport). */
 .reveal {
   opacity: 0;
   transform: translateY(12px);
@@ -328,7 +332,7 @@ html[data-theme="dark"] {
   transform: none;
 }
 
-/* Skeleton shimmer (sin spinners). */
+/* Skeleton shimmer (no spinners). */
 .shimmer {
   position: relative;
   overflow: hidden;
@@ -351,7 +355,7 @@ html[data-theme="dark"] {
   100% { transform: translateX(100%); }
 }
 
-/* Live pulse (● en vivo). */
+/* Live pulse (● live). */
 .live-dot {
   position: relative;
 }
@@ -370,7 +374,33 @@ html[data-theme="dark"] {
   100% { opacity: 0; }
 }
 
-/* Ken Burns lento para media del hero. */
+/* "New launches" ticker: looping marquee (the list is duplicated, so
+   -50% completes one cycle seamlessly). Edge mask for an elegant fade. */
+.ticker-track {
+  animation: ticker-scroll 40s linear infinite;
+}
+@keyframes ticker-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.ticker-mask {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 4%, #000 92%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 4%, #000 92%, transparent);
+}
+
+/* Top strip gradient: black (left, joins the dark sidebar) →
+   Binance yellow (right). The sidebar stays flat; together they form an "L". */
+.strip-grad {
+  background-image: linear-gradient(
+    90deg,
+    var(--bg) 0%,
+    var(--bg) 20%,
+    color-mix(in srgb, var(--brand) 16%, var(--bg)) 62%,
+    color-mix(in srgb, var(--brand) 42%, var(--bg)) 100%
+  );
+}
+
+/* Slow Ken Burns for hero media. */
 .kenburns {
   animation: kenburns 8s ease-out both;
 }
@@ -379,11 +409,24 @@ html[data-theme="dark"] {
   to { transform: scale(1); }
 }
 
+/* Steam-style flyout entrance (portal, fixed position). */
+.flyin {
+  animation: flyin var(--dur-std) var(--ease-out-expo) both;
+}
+@keyframes flyin {
+  from { opacity: 0; transform: scale(0.96) translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .reveal { opacity: 1; transform: none; transition: none; }
   .shimmer::after,
   .live-dot::before,
-  .kenburns { animation: none; }
+  .kenburns,
+  .flyin,
+  .ticker-track { animation: none; }
+  /* No marquee: the ticker becomes a static horizontal scroll. */
+  .ticker-track { overflow-x: auto; }
 }
 
 /* --- Base --- */
@@ -401,7 +444,7 @@ body {
   font-family: var(--font-sans);
   font-weight: 500;
   -webkit-font-smoothing: antialiased;
-  /* Campo cinematográfico (v3): profundidad sin ruido, estático. */
+  /* Cinematic field (v3): depth without noise, static. */
   background-image:
     radial-gradient(1200px 600px at 12% -10%, rgba(240, 185, 11, 0.06), transparent 60%),
     radial-gradient(1000px 520px at 100% 0%, rgba(30, 174, 219, 0.05), transparent 55%);
@@ -409,20 +452,31 @@ body {
   background-repeat: no-repeat;
 }
 
-/* Los números mandan: numerales tabulares en datos (DESIGN §1, §3). */
+/* Numbers rule: tabular numerals in data (DESIGN §1, §3). */
 .tnum,
 [data-numeric] {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
 }
 
-/* Foco accesible (DESIGN §8) */
+/* Accessible focus (DESIGN §8) */
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
-/* Respetar prefers-reduced-motion (DESIGN §4) */
+/* Form controls focus brand-yellow only (no cyan ring) — inputs, textareas and
+ * our custom Select trigger ([data-field]). Overrides the cyan --focus outline
+ * above for typed fields so the pairing never reads as two-color/"clown". */
+input:focus-visible,
+textarea:focus-visible,
+[data-field]:focus-visible {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 22%, transparent);
+}
+
+/* Respect prefers-reduced-motion (DESIGN §4) */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

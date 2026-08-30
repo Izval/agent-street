@@ -8,7 +8,6 @@ import {
   type Category,
 } from "../lib/taxonomy";
 import { AppShell } from "../components/AppShell";
-import { FeatureBlock } from "../components/FeatureBlock";
 import { SkillCard } from "../components/SkillCard";
 
 export function meta(_: Route.MetaArgs) {
@@ -16,36 +15,22 @@ export function meta(_: Route.MetaArgs) {
 }
 
 export default function SkillsPage() {
-  const flagship = SKILLS.find((s) => s.flagship);
-  // Categorías presentes entre las skills, en el orden de la taxonomía.
+  // Categories present among the skills, in taxonomy order.
   const cats = CATEGORIES.filter((c) => SKILLS.some((s) => s.category === c));
 
   return (
     <AppShell>
       <header className="py-2">
         <h1 className="text-3xl font-bold md:text-4xl">
-          Skills <span className="text-brand">componibles</span>
+          Composable <span className="text-brand">skills</span>
         </h1>
         <p className="mt-3 max-w-2xl text-base text-text-2">
-          Módulos que un agente enchufa vía ERC-8183. IVL es el cerebro del
-          rebalanceo; las skills de Altana cubren ejecución, yield y monitoreo.
+          Modules an agent plugs in via ERC-8183 — execution, yield, monitoring
+          and range quality, composable into any agent.
         </p>
       </header>
 
-      {/* Flagship destacado */}
-      {flagship && (
-        <div className="mt-6">
-          <FeatureBlock
-            to={`/skill/${flagship.id}`}
-            eyebrow="Flagship · score en vivo"
-            title={flagship.name}
-            description={flagship.description}
-            accent="var(--accent-defi)"
-          />
-        </div>
-      )}
-
-      {/* Agrupado por categoría — mismo trato de diversidad que Agents */}
+      {/* Grouped by category — same diversity treatment as Agents */}
       {cats.map((c: Category) => {
         const items = SKILLS.filter((s) => s.category === c);
         const aisle = aisleOf(c);

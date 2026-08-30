@@ -4,15 +4,27 @@
 	"compatibility_date": "2026-08-17",
 	"compatibility_flags": ["nodejs_compat"],
 	"main": "./workers/app.ts",
+	// Nota: estos `vars` son los defaults de DEPLOY (prod). Para dev 100% local
+	// contra workers en localhost, sobrescribe con `.dev.vars` (gitignored).
 	"vars": {
-		// URL base del Worker proxy a 8004scan (workers/8004-proxy).
-		// En prod apúntalo al dominio desplegado del proxy.
-		"PROXY_8004_URL": "http://localhost:8788",
+		// Worker proxy a 8004scan (workers/8004-proxy) — desplegado.
+		"PROXY_8004_URL": "https://agent-street-8004-proxy.zevlat.workers.dev",
 		// Worker indexer onchain (workers/onchain-indexer): portfolio + trades del agent_wallet.
-		"ONCHAIN_INDEXER_URL": "http://localhost:8789",
+		"ONCHAIN_INDEXER_URL": "https://agent-street-onchain-indexer.zevlat.workers.dev",
 		// Worker de analítica de demanda (workers/analytics): eventos view/hire + trending.
-		"ANALYTICS_URL": "http://localhost:8790",
-		// API pública del motor IVL (no requiere secreto).
-		"IVL_API_URL": "https://api.zvlint.com"
+		"ANALYTICS_URL": "https://agent-street-analytics.zevlat.workers.dev",
+		// Seam de contratación x402 (workers/hire-x402) — verificador onchain.
+		// Modelo client-pays: el usuario firma/paga la transferencia desde su wallet;
+		// el worker publica el quote (402) y VERIFICA la tx onchain (POST /v1/hire).
+		// Dev local: sobrescribe a http://localhost:8791 vía .dev.vars.
+		"HIRE_X402_URL": "https://agent-street-hire-x402.zevlat.workers.dev",
+		// Agent-native surface (workers/mcp): the MCP endpoint an orchestrator agent
+		// connects to in order to discover, evaluate, hire and manage listed agents.
+		// Surfaced read-only in the UI (For Agents page + per-listing access panel).
+		"MCP_URL": "https://agent-street-mcp.zevlat.workers.dev",
+		// Registrar (services/registrar, FastAPI) — acuña identidad ERC-8004 testnet
+		// para el wizard "Create agent". ÚNICA pieza no-Cloudflare: debe apuntar a la
+		// instancia desplegada (uvicorn). Dev local: http://localhost:8080 vía .dev.vars.
+		"REGISTRAR_URL": "http://localhost:8080"
 	}
 }

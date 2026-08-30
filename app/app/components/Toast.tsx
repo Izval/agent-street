@@ -1,11 +1,11 @@
 /**
- * Toast — aviso efímero de acción (plan §5.11: "hire iniciado").
- * Doble API:
- *   - `Toast` presentacional (una tarjeta glass-hair, controlada por el padre).
- *   - `ToastProvider` + `useToast()` — contexto ligero: `push({...})` encola y el
- *     viewport se auto-desmonta tras `duration`. SSR-safe (estado en cliente; el
- *     provider no toca `window` en render).
- * A11y: región `aria-live="polite"`; tono no depende solo del color.
+ * Toast — ephemeral action notification (plan §5.11: "hire started").
+ * Dual API:
+ *   - `Toast` presentational (a glass-hair card, controlled by the parent).
+ *   - `ToastProvider` + `useToast()` — lightweight context: `push({...})` enqueues and the
+ *     viewport auto-unmounts after `duration`. SSR-safe (state on the client; the
+ *     provider does not touch `window` in render).
+ * A11y: `aria-live="polite"` region; tone does not depend on color alone.
  */
 
 import {
@@ -38,11 +38,11 @@ export interface ToastData {
   title: string;
   description?: string;
   tone?: ToastTone;
-  /** ms antes de auto-cerrar. 0 = no auto-cerrar. Default 4000. */
+  /** ms before auto-close. 0 = no auto-close. Default 4000. */
   duration?: number;
 }
 
-// ---- Presentacional --------------------------------------------------- //
+// ---- Presentational --------------------------------------------------- //
 
 export interface ToastProps {
   title: string;
@@ -73,7 +73,7 @@ export function Toast({ title, description, tone = "info", onClose }: ToastProps
         <button
           type="button"
           onClick={onClose}
-          aria-label="Cerrar aviso"
+          aria-label="Dismiss notification"
           className="-mr-1 rounded p-1 text-text-3 transition-colors hover:text-text"
         >
           ✕
@@ -83,7 +83,7 @@ export function Toast({ title, description, tone = "info", onClose }: ToastProps
   );
 }
 
-// ---- Contexto ligero -------------------------------------------------- //
+// ---- Lightweight context ---------------------------------------------- //
 
 interface ToastContextValue {
   push: (t: Omit<ToastData, "id"> & { id?: string }) => string;
@@ -152,11 +152,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** Hook de conveniencia. Debe usarse dentro de <ToastProvider>. */
+/** Convenience hook. Must be used inside <ToastProvider>. */
 export function useToast(): ToastContextValue {
   const ctx = useContext(ToastContext);
   if (ctx == null) {
-    throw new Error("useToast debe usarse dentro de <ToastProvider>");
+    throw new Error("useToast must be used inside <ToastProvider>");
   }
   return ctx;
 }

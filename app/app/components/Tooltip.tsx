@@ -1,8 +1,8 @@
 /**
- * Tooltip — burbuja `.glass-hair` en hover/focus (plan §5.11). SSR-safe:
- * estado inicial cerrado, sin portales ni acceso a `window` en render.
- * A11y: `role="tooltip"` + `aria-describedby`; se muestra también con foco de
- * teclado y se cierra con Escape.
+ * Tooltip — `.glass-hair` bubble on hover/focus (plan §5.11). SSR-safe:
+ * initial state closed, no portals or `window` access in render.
+ * A11y: `role="tooltip"` + `aria-describedby`; it also shows on keyboard
+ * focus and closes with Escape.
  */
 
 import { useId, useState } from "react";
@@ -18,9 +18,9 @@ const POS: Record<Side, string> = {
 };
 
 export interface TooltipProps {
-  /** Contenido de la burbuja. */
+  /** Bubble content. */
   label: ReactNode;
-  /** El disparador (debe poder recibir foco para a11y de teclado). */
+  /** The trigger (must be focusable for keyboard a11y). */
   children: ReactNode;
   side?: Side;
   className?: string;

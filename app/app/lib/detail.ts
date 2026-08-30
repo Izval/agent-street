@@ -1,25 +1,20 @@
 /**
- * Compositor del detalle de agente (WS1.3) — ensambla `AgentDetail` (contracts.ts)
- * a partir de las tres fuentes: proxy 8004scan enriquecido (agente + reputación +
- * services), indexer onchain (portfolio + trades) e IVL (solo flagship).
+ * Agent detail compositor (WS1.3) — assembles `AgentDetail` (contracts.ts) from
+ * two sources: the enriched 8004scan proxy (agent + reputation + services) and
+ * the onchain indexer (portfolio + trades).
  *
- * Lo consume `routes/agent.tsx` (Ola 3). Cada fuente degrada a null de forma
- * independiente: si el indexer cae, el detalle sigue mostrando reputación real.
+ * Consumed by `routes/agent.tsx` (Wave 3). Each source degrades to null
+ * independently: if the indexer goes down, the detail still shows real reputation.
  */
 
 import type { AgentDetail } from "./contracts";
 import { createAgentsClient } from "./agents";
 import { createOnchainClient, deriveMetrics } from "./onchain";
-import { createIvlClient } from "./ivl";
 import { aisleOf, categoryTemplate } from "./taxonomy";
-import { FLAGSHIP_ID } from "./seed";
-
-const FLAGSHIP_PAIR = "BNB-USDT";
 
 export interface DetailEnv {
   proxyUrl: string;
   indexerUrl: string;
-  ivlUrl: string;
   signal?: AbortSignal;
 }
 
@@ -38,17 +33,12 @@ export async function loadAgentDetail(
   const aisle = category ? aisleOf(category) : null;
   const template = categoryTemplate(category);
 
-  // Wallet a indexar: la del agente o, en su defecto, el owner.
+  // Wallet to index: the agent's, or failing that, the owner's.
   const wallet = agent.agentWallet ?? agent.ownerAddress ?? null;
 
-  const [portfolio, trades, ivl] = await Promise.all([
+  const [portfolio, trades] = await Promise.all([
     wallet ? onchain.portfolio(wallet) : Promise.resolve(null),
     wallet ? onchain.trades(wallet) : Promise.resolve(null),
-    agent.id === FLAGSHIP_ID
-      ? createIvlClient({ baseUrl: env.ivlUrl, signal: env.signal })
-          .ticks(FLAGSHIP_PAIR)
-          .catch(() => null)
-      : Promise.resolve(null),
   ]);
 
   return {
@@ -58,10 +48,9 @@ export async function loadAgentDetail(
     template,
     portfolio,
     metrics: deriveMetrics(portfolio, trades),
-    equity: null, // v1: sin histórico de NAV (ver onchain.deriveMetrics)
+    equity: null, // v1: no NAV history (see onchain.deriveMetrics)
     trades,
     reputation,
     services,
-    ivl,
   };
 }

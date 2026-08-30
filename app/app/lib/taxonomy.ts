@@ -1,16 +1,16 @@
 /**
- * Taxonomía del marketplace (contrato WS0.2) — fuente de verdad.
+ * Marketplace taxonomy (WS0.2 contract) — source of truth.
  *
- * Dos niveles: AISLE (aisles tipo App Store) → CATEGORY (con subtipos). Las 4
- * categorías OBLIGATORIAS del hackathon (required:true) mantienen sus ids
- * ESTABLES — `rebalancing`, `grid`, `yield`, `health` — para no romper el proxy,
- * el seed ni los enlaces existentes. Agent Diversity: se tratan con igual
- * profundidad; la taxonomía nueva es una capa ENCIMA, no un reemplazo.
+ * Two levels: AISLE (App Store-style aisles) → CATEGORY (with subtypes). The 4
+ * MANDATORY hackathon categories (required:true) keep their STABLE ids —
+ * `rebalancing`, `grid`, `yield`, `health` — so as not to break the proxy, the
+ * seed or the existing links. Agent Diversity: they are treated with equal
+ * depth; the new taxonomy is a layer ON TOP, not a replacement.
  *
- * El Worker `workers/8004-proxy/src/classify.ts` ESPEJA estas reglas keyword
- * (no puede importar cross-package). Mantener en sync: si cambia una `kw` aquí,
- * cámbiala allá. `template` decide la plantilla base (KPIs/charts/acento) que
- * usan la card y el detalle — es lo que evita el look genérico.
+ * The Worker `workers/8004-proxy/src/classify.ts` MIRRORS these keyword rules
+ * (it can't import cross-package). Keep them in sync: if a `kw` changes here,
+ * change it there. `template` decides the base template (KPIs/charts/accent)
+ * used by the card and the detail — it is what avoids the generic look.
  */
 
 export type Aisle =
@@ -24,16 +24,16 @@ export type Aisle =
 
 export type Category =
   // trading
-  | "grid" // ★ obligatoria
+  | "grid" // ★ mandatory
   | "dca"
   | "momentum"
   | "copy-trade"
   | "market-making"
   | "perps"
   // defi
-  | "rebalancing" // ★ obligatoria (hogar de IVL)
-  | "yield" // ★ obligatoria
-  | "health" // ★ obligatoria
+  | "rebalancing" // ★ mandatory (home of IVL)
+  | "yield" // ★ mandatory
+  | "health" // ★ mandatory
   | "lending"
   | "liquid-staking"
   // nft
@@ -53,22 +53,22 @@ export type Category =
   | "social-signals"
   | "social-narratives";
 
-/** Plantilla base: decide qué KPIs/charts/acento renderiza card y detalle. */
+/** Base template: decides which KPIs/charts/accent the card and detail render. */
 export type TemplateKind =
   | "trading" // win-rate · PnL · volumen · equity curve
-  | "clmm" // IVL score · rango LP · APR · time-in-range
-  | "yield" // APY comparado · TVL · protocolo
-  | "health" // gauge health factor · distancia a liquidación · colateral
-  | "nft" // floor · volumen · holdings
-  | "rwa" // tipo de activo · respaldo · yield
+  | "clmm" // IVL score · LP range · APR · time-in-range
+  | "yield" // compared APY · TVL · protocol
+  | "health" // health factor gauge · distance to liquidation · collateral
+  | "nft" // floor · volume · holdings
+  | "rwa" // asset type · backing · yield
   | "services"; // services/skills · x402 · uptime · freshness
 
 export interface AisleDef {
   id: Aisle;
   label: string;
-  /** Acento sutil por aisle (token CSS). NO compite con el amarillo de marca. */
+  /** Subtle per-aisle accent (CSS token). Does NOT compete with the brand yellow. */
   accent: string;
-  /** Glyph corto para el sidebar (emoji/carácter; sin dependencias de iconos). */
+  /** Short glyph for the sidebar (emoji/character; no icon dependencies). */
   glyph: string;
 }
 
@@ -77,11 +77,11 @@ export interface CategoryDef {
   label: string;
   aisle: Aisle;
   template: TemplateKind;
-  /** Una de las 4 obligatorias del hackathon (igual profundidad). */
+  /** One of the 4 mandatory hackathon categories (equal depth). */
   required?: boolean;
-  /** Término de búsqueda server-side para la 8004scan API (`?search=`). */
+  /** Server-side search term for the 8004scan API (`?search=`). */
   search?: string;
-  /** Regla keyword para clasificar (espejada en el Worker). Orden = prioridad. */
+  /** Keyword rule for classifying (mirrored in the Worker). Order = priority. */
   kw?: RegExp;
 }
 
@@ -96,11 +96,11 @@ export const AISLES: AisleDef[] = [
 ];
 
 /**
- * Definición de cada categoría. El ORDEN importa para clasificar: las reglas más
- * específicas / las 4 obligatorias van primero (rebalancing gana a lending, etc.).
+ * Definition of each category. ORDER matters for classification: the more
+ * specific rules / the 4 mandatory ones go first (rebalancing beats lending, etc.).
  */
 export const CATEGORY_DEFS: CategoryDef[] = [
-  // --- DeFi (incluye 3 obligatorias) ---
+  // --- DeFi (includes 3 mandatory) ---
   {
     id: "rebalancing",
     label: "Rebalancing",
@@ -144,7 +144,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
     search: "staking",
     kw: /\b(liquid\s*stak|\blst\b|stak|lista|slisbnb|restak)\b/i,
   },
-  // --- Trading (incluye 1 obligatoria) ---
+  // --- Trading (includes 1 mandatory) ---
   {
     id: "grid",
     label: "Grid Trading",
@@ -289,14 +289,14 @@ export const CATEGORY_DEFS: CategoryDef[] = [
   },
 ];
 
-// --- Índices y helpers ---
+// --- Indexes and helpers ---
 export const CATEGORY_BY_ID: Record<Category, CategoryDef> = Object.fromEntries(
   CATEGORY_DEFS.map((c) => [c.id, c]),
 ) as Record<Category, CategoryDef>;
 
 export const CATEGORIES: Category[] = CATEGORY_DEFS.map((c) => c.id);
 
-/** Las 4 obligatorias del hackathon (igual profundidad, siempre visibles). */
+/** The 4 mandatory hackathon categories (equal depth, always visible). */
 export const REQUIRED_CATEGORIES: Category[] = CATEGORY_DEFS.filter(
   (c) => c.required,
 ).map((c) => c.id);
@@ -317,7 +317,7 @@ export function aisleOf(id: Category): Aisle | null {
   return CATEGORY_BY_ID[id]?.aisle ?? null;
 }
 
-/** Texto clasificable → categoría (primera regla que matchea, por prioridad). */
+/** Classifiable text → category (first rule that matches, by priority). */
 export interface Classifiable {
   name?: string;
   description?: string;

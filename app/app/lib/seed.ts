@@ -1,26 +1,22 @@
 /**
- * Capa 2 — seed curado (roadmap §6 · docs/seed-catalog.md).
+ * Layer 2 — curated seed (roadmap §6 · docs/seed-catalog.md).
  *
- * 8004scan (Capa 1, vía el proxy) es el listado real que cuenta. Este seed
- * cumple dos roles honestos:
- *   (a) FALLBACK — si el proxy está caído/rate-limitado, las 4 categorías nunca
- *       quedan en blanco frente al jurado.
- *   (b) ENRIQUECIMIENTO — rellena categorías flacas para dar "Agent Diversity".
+ * 8004scan (Layer 1, via the proxy) is the real listing that counts. This seed
+ * fulfills two honest roles:
+ *   (a) FALLBACK — if the proxy is down/rate-limited, the 4 categories never
+ *       end up blank in front of the jury.
+ *   (b) ENRICHMENT — fills out thin categories to deliver "Agent Diversity".
  *
- * Todo aquí lleva `source:"seed"` → la UI muestra badge `curated`, nunca finge
- * ser dato onchain en vivo. El flagship IVL además trae score en vivo de
- * api.zvlint.com (ver routes/home.tsx), no de aquí.
+ * Everything here carries `source:"seed"` → the UI shows a `curated` badge, it
+ * never pretends to be live onchain data.
  *
- * Datos tomados de proyectos reales de la cohorte BNB Hack (jun 2026); métricas
- * son placeholders curados salvo donde el proyecto publicó track record.
+ * Data taken from real projects of the BNB Hack cohort (Jun 2026); metrics are
+ * curated placeholders except where the project published a track record.
  */
 
 import type { Agent } from "./agents";
 import type { Category } from "./categories";
 import { CATEGORY_LABELS } from "./categories";
-
-/** id estable del flagship IVL en el marketplace (Agent + Skill). */
-export const FLAGSHIP_ID = "ivl-rebalancer";
 
 type SeedInput = Omit<
   Agent,
@@ -40,12 +36,12 @@ function seed(a: SeedInput): Agent {
 }
 
 export const SEED_AGENTS: Agent[] = [
-  // --- Rebalancing (flagship) ---
+  // --- Rebalancing ---
   seed({
-    id: FLAGSHIP_ID,
+    id: "ivl-rebalancer",
     name: "IVL Rebalancer",
     description:
-      "Lee la calidad de rango en vivo del motor IVL y reposiciona una posición de liquidez concentrada en PancakeSwap v3 — rango óptimo, gestionado onchain.",
+      "Reads live range quality from the IVL engine and repositions a concentrated liquidity position on PancakeSwap v3 — optimal range, managed onchain.",
     category: "rebalancing",
     stars: 5,
     score: 96,
@@ -63,7 +59,7 @@ export const SEED_AGENTS: Agent[] = [
     tokenId: "140004",
     name: "Gridora",
     description:
-      "Grid trading non-custodial con TradeJournal onchain. Track record real: 38 episodios, 58% win-rate, +18.77% PnL. Firma vía Trust Wallet Agent Kit.",
+      "Non-custodial grid trading with an onchain TradeJournal. Real track record: 38 episodes, 58% win-rate, +18.77% PnL. Signs via Trust Wallet Agent Kit.",
     category: "grid",
     contractAddress: "0x0000000000000000000000000000000000140004",
     stars: 4,
@@ -80,7 +76,7 @@ export const SEED_AGENTS: Agent[] = [
     id: "gridsentinel",
     name: "Grid Sentinel",
     description:
-      "Ladder de órdenes grid adaptativo por volatilidad sobre pares BSC líquidos; ancho de grid dinámico.",
+      "Volatility-adaptive grid order ladder over liquid BSC pairs; dynamic grid width.",
     category: "grid",
     stars: 3,
     score: 74,
@@ -96,7 +92,7 @@ export const SEED_AGENTS: Agent[] = [
     id: "metayieldvault",
     name: "MetaYieldVault",
     description:
-      "Enruta capital al mejor APY entre Venus, Aave V3 y Lista en BSC; rebalanceo de yield automatizado.",
+      "Routes capital to the best APY across Venus, Aave V3 and Lista on BSC; automated yield rebalancing.",
     category: "yield",
     stars: 4,
     score: 82,
@@ -112,7 +108,7 @@ export const SEED_AGENTS: Agent[] = [
     id: "stakepilot",
     name: "StakePilot",
     description:
-      "Optimiza liquid staking (Lista slisBNB) y auto-compone recompensas manteniendo liquidez de salida.",
+      "Optimizes liquid staking (Lista slisBNB) and auto-compounds rewards while keeping exit liquidity.",
     category: "yield",
     stars: 3,
     score: 69,
@@ -129,7 +125,7 @@ export const SEED_AGENTS: Agent[] = [
     id: "guarded-alpha",
     name: "Guarded Alpha",
     description:
-      "Vigila el health factor de posiciones de préstamo y desapalanca antes de la liquidación. Protección de posición 24/7.",
+      "Watches the health factor of lending positions and deleverages before liquidation. 24/7 position protection.",
     category: "health",
     stars: 4,
     score: 79,
@@ -145,7 +141,7 @@ export const SEED_AGENTS: Agent[] = [
     id: "safeagent",
     name: "SafeAgent",
     description:
-      "Monitor de riesgo con parámetros configurables (LTV, colateral) construido sobre WDK/Tether; alerta y actúa ante caídas de solvencia.",
+      "Risk monitor with configurable parameters (LTV, collateral) built on WDK/Tether; alerts and acts on solvency drops.",
     category: "health",
     stars: 3,
     score: 72,
@@ -161,7 +157,7 @@ export const SEED_AGENTS: Agent[] = [
     id: "regime-guard",
     name: "Regime Guard",
     description:
-      "Detecta cambios de régimen de mercado y ajusta la exposición para proteger el colateral en volatilidad alta.",
+      "Detects market regime shifts and adjusts exposure to protect collateral during high volatility.",
     category: "health",
     stars: 3,
     score: 66,

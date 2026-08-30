@@ -1,9 +1,9 @@
 /**
  * Donut — asset allocation (DESIGN.md v2 §15, §17).
- * Arcos SVG (anillo) con gap de 2px entre slices; colores categóricos
- * `--series-1..8` en ORDEN FIJO (nunca cíclico), `--series-neutral` para
- * Cash/USDT/otros. Normaliza a 100%. Leyenda a la derecha (label · % · valor,
- * tabular) + tooltip por slice. Texto con tokens de texto. SSR-safe.
+ * SVG arcs (ring) with a 2px gap between slices; categorical colors
+ * `--series-1..8` in FIXED ORDER (never cyclic), `--series-neutral` for
+ * Cash/USDT/others. Normalizes to 100%. Legend on the right (label · % · value,
+ * tabular) + tooltip per slice. Text with text tokens. SSR-safe.
  */
 
 import { useState } from "react";
@@ -37,7 +37,7 @@ const CX = 60;
 const CY = 60;
 const R_OUT = 54;
 const R_IN = 34;
-const GAP = 2; // px de superficie entre slices
+const GAP = 2; // px of surface between slices
 
 function fmtValue(n: number): string {
   if (!Number.isFinite(n)) return "—";
@@ -48,7 +48,7 @@ function fmtValue(n: number): string {
   return n.toLocaleString("en-US", { maximumFractionDigits: 4 });
 }
 
-// ángulo 0 = arriba, en sentido horario.
+// angle 0 = top, clockwise.
 function polar(r: number, a: number): [number, number] {
   return [CX + r * Math.sin(a), CY - r * Math.cos(a)];
 }
@@ -78,12 +78,12 @@ export function Donut({ slices, centerLabel, centerValue }: DonutProps) {
   if (clean.length === 0 || total <= 0) {
     return (
       <div className="flex h-[120px] items-center justify-center rounded-[8px] border border-border bg-surface text-xs text-text-3">
-        Sin allocation
+        No allocation
       </div>
     );
   }
 
-  // color por entidad en orden fijo; neutral no consume índice categórico.
+  // color per entity in fixed order; neutral does not consume a categorical index.
   let catIdx = 0;
   const colored = clean.map((s) => {
     const isNeutral = NEUTRAL_LABELS.has(s.label.trim().toLowerCase());
@@ -96,7 +96,7 @@ export function Donut({ slices, centerLabel, centerValue }: DonutProps) {
     return { ...s, color, pct };
   });
 
-  const gapAngle = GAP / R_OUT; // rad, aprox 2px en el borde exterior
+  const gapAngle = GAP / R_OUT; // rad, approx 2px at the outer edge
   let cum = 0;
   const arcs = colored.map((s) => {
     const frac = s.value / total;

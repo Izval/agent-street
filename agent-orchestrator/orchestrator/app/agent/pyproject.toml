@@ -1,0 +1,21 @@
+[project]
+name = "agent-street-orchestrator"
+version = "0.1.0"
+description = "Reference orchestrator (buyer) that hires agents through the Agent-Street MCP server."
+requires-python = ">=3.10"
+dependencies = [
+    # SDK wallet: the sole signer that BROADCASTS the x402 payment (client-pays).
+    "bnbagent-studio-core>=0.0.5,<0.1",
+    "bnbagent>=0.4.0",
+    # web3 for building/broadcasting the ERC-20/native transfer the quote demands.
+    "web3>=7,<8",
+    # httpx for the MCP client (JSON-RPC over Streamable HTTP) and registration.
+    "httpx>=0.27",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]

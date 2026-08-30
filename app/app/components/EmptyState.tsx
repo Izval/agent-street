@@ -1,6 +1,6 @@
 /**
- * EmptyState — vacío honesto con voz de interfaz (DESIGN.md v3 §21; plan §5.11).
- * Dice QUÉ hacer, sin disculpas ni cifras inventadas. SSR-safe (markup puro).
+ * EmptyState — honest empty state with an interface voice (DESIGN.md v3 §21; plan §5.11).
+ * Says WHAT to do, with no apologies or made-up figures. SSR-safe (pure markup).
  */
 
 import type { ReactNode } from "react";
@@ -8,9 +8,9 @@ import type { ReactNode } from "react";
 export interface EmptyStateProps {
   title: string;
   hint?: string;
-  /** Glyph/ícono translúcido opcional (carácter o nodo). */
+  /** Optional translucent glyph/icon (character or node). */
   icon?: ReactNode;
-  /** CTA opcional (Link/botón que el padre inyecta). */
+  /** Optional CTA (Link/button injected by the parent). */
   action?: ReactNode;
   className?: string;
 }

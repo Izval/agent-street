@@ -1,6 +1,6 @@
 /**
- * Chips de categoría (DESIGN.md §5): pill --surface-2; activo texto --bg sobre
- * --brand. Enlazan a /category/:id. Trato igual a las 4 (Agent Diversity).
+ * Category chips (DESIGN.md §5): pill --surface-2; active state has --bg text over
+ * --brand. Link to /category/:id. Equal treatment for the 4 (Agent Diversity).
  */
 
 import { Link } from "react-router";

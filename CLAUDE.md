@@ -44,8 +44,9 @@ Marketplace donde se **descubren, comparan y contratan** agentes ERC-8004 en BSC
 - **Agents** — agentes contratables, en 4 categorías: **Rebalancing · Grid · Yield · Health Factor**.
 - **Skills** — módulos componibles (`SKILL.md` / skills de Altana) que un agente enchufa.
 
-**IVL se lista dos veces:** como Agent (Rebalancer) y como Skill. Es el flagship de ambos tabs y
-demuestra la composabilidad (ERC-8183, delegación de tareas entre agentes).
+**IVL se lista dos veces:** como Agent (Rebalancer) y como Skill — pero como **listing normal**, igual
+que cualquier otro. Demuestra composabilidad (ERC-8183, delegación de tareas entre agentes) y puede
+**destacarse solo por mérito** (score/demanda reales), nunca por special-casing en el código.
 
 ### ⚠ Separación IVL ↔ Agent-Street (propiedad y acoplamiento) — regla dura
 - **Agent-Street es el ENTREGABLE para BNB Chain (Binance).** Es lo que se somete al track
@@ -57,9 +58,13 @@ demuestra la composabilidad (ERC-8183, delegación de tareas entre agentes).
   `api.zvlint.com`). Va **destacado donde sea relevante** en el marketplace **mientras siga siendo el
   mejor de su categoría** (rebalancing) — destacado **por mérito**, no como default permanente; si
   aparece algo mejor, deja de ser el flagship.
-- **IVL se acopla SOLO como listing** (Agent + Skill) a través de la interfaz normal del marketplace
-  (8004scan + el seam HTTP a `api.zvlint.com`). **NUNCA como código integrado/acoplado dentro de
-  agent-street.** El marketplace debe **funcionar sin IVL** (IVL es su flagship, no una dependencia dura).
+- **IVL se acopla SOLO como listing** (Agent + Skill) a través de la interfaz normal del marketplace:
+  **8004scan** (cuando el agente `agent-ivl/` está vivo onchain) o el **seed curado**
+  (`app/app/lib/seed.ts` + `app/app/lib/skills.ts`). **NUNCA como código integrado/acoplado dentro de
+  agent-street:** el código del marketplace **no** llama a `api.zvlint.com`, **no** tiene `FLAGSHIP_ID`
+  ni ramas `if (isIVL)`, y no muestra paneles de "IVL score" en vivo. El motor IVL (`api.zvlint.com`)
+  lo consume **solo** el agente separado `agent-ivl/`. El marketplace debe **funcionar sin IVL** (no es
+  una dependencia dura).
 - **IP:** el motor/valor de IVL sigue siendo nuestro. Entregar agent-street **jamás** debe filtrar el
   motor IVL — solo el seam público. `agent-ivl/` (el agente ERC-8004 que envuelve IVL) es un
   **listing de ejemplo**, desplegable y separable, no parte del core del marketplace.
@@ -75,8 +80,10 @@ Criterios de juzgado a optimizar: **Functionality** (journey de descubrir→acti
 - **Agente IVL:** **BNBAgent SDK** (Python, `pip install bnbagent-studio`) en `agent-ivl/`. Da identidad
   **ERC-8004** + tareas **ERC-8183** + sessions/spend-caps/**x402** (esto último desbloquea el bounty
   Altana). Ejecución LP onchain vía **TermiX BSC MCP** o skill *PancakeSwap Liquidity* (ver §5).
-- **Motor IVL:** NO reimplementar. Consumir su **API pública** `https://api.zvlint.com`:
-  `/v1/ivl`, `/v1/ivl/ticks` (devuelve `tickLower/tickUpper` listos para Pancake v3), `/v1/screener`.
+- **Motor IVL:** NO reimplementar. Lo consume **solo** el agente separado `agent-ivl/` (NO el
+  marketplace) vía la **API pública** `https://api.zvlint.com` (`/v1/ivl`, `/v1/ivl/ticks` →
+  `tickLower/tickUpper` para Pancake v3, `/v1/screener`). **El código de agent-street nunca llama a
+  esta API:** ve a IVL como a cualquier otro agente, vía 8004scan/seed.
 
 ```
 agent-street/
@@ -101,8 +108,9 @@ agent-street/
 - Nombre **Agent-Street**; repo hermano de `third_city`.
 - Stack Remix + Cloudflare. UI BNB-nativa vía `DESIGN.md`.
 - Ejecución onchain: **BNBAgent SDK como base** + TermiX MCP como transporte opcional (no es "uno u otro").
-- IVL doble-listado (Agent + Skill) — **como listing destacado, NO integrado en el core** (ver §2:
-  Agent-Street es el entregable para BNB; IVL es activo separado nuestro, acoplado solo vía el seam).
+- IVL doble-listado (Agent + Skill) — **como listing normal, NO integrado en el core.** Destacado solo
+  por mérito (score/demanda), **sin `FLAGSHIP_ID` ni llamadas al motor IVL desde el código** de
+  agent-street (ver §2: Agent-Street es el entregable para BNB; IVL es activo separado nuestro).
 - **Par inicial del agente en testnet: BNB-USDT.**
 
 ## 6. ⚠ Validación crítica — hacer PRIMERO (días 1–3)
@@ -115,11 +123,13 @@ El plan por fases completo está en `docs/roadmap.md §4`.
 
 ## 7. Cómo trabajar aquí
 - **Secuencia de-risk:** asegurar bounties primero (valor casi garantizado), marketplace como upside.
-- Idioma de la UI y de la doc: **español**.
+- **Language (hard rule): ALL text — UI copy, code, comments, and docs — MUST be in English.**
+  El código de Agent-Street es entregable a BNB Chain; no debe contener español.
 - **Repo separado a propósito** (técnico **y** estratégico, ver §2): no mezclar runtimes ni secretos
-  con `third_city`. El seam con IVL es **HTTP a `api.zvlint.com`**, no importar código del otro repo.
-  Razón estratégica: Agent-Street es el **entregable para BNB** y debe poder entregarse **sin IVL**;
-  IVL es activo **nuestro** que se enchufa como listing, no IP que se filtre en el entregable.
+  con `third_city`. El único puente hacia el motor IVL (`api.zvlint.com`) vive en el agente separado
+  `agent-ivl/`; **el marketplace no importa ese código ni llama a esa API**. Razón estratégica:
+  Agent-Street es el **entregable para BNB** y debe poder entregarse **sin IVL**; IVL es activo
+  **nuestro** que se enchufa como listing, no IP que se filtre en el entregable.
 - **Secretos/deploy:** nunca commitear `.env`. Deploy de Cloudflare con `wrangler` desde su propio dir;
   jamás un deploy que arrastre `.env.local`.
 - Listado de agentes: **8004scan es el motor real**; el seed de la cohorte del hack anterior es sabor
@@ -161,7 +171,8 @@ El plan por fases completo está en `docs/roadmap.md §4`.
 - Faucet BSC testnet: https://testnet.bnbchain.org/faucet-smart (o https://www.bnbchain.org/en/testnet-faucet)
 - Brand guidelines BNB (para `DESIGN.md`): https://www.bnbchain.org/en/brand-guidelines
 
-**IVL (nuestro activo, repo hermano `third_city`)**
+**IVL (nuestro activo, repo hermano `third_city`)** — consumido **solo** por el agente `agent-ivl/`,
+nunca por el marketplace (agent-street no llama a `api.zvlint.com`).
 - API pública: `https://api.zvlint.com` — `/v1/ivl`, `/v1/ivl/ticks` (rango v3), `/v1/screener`
 - Motor: `third_city/frontend/src/lib/ivl.ts` · Skill + scripts: `third_city/skills/ivl/`
   (`backtest.mjs`, `compare.mjs`, `ivl-lp.mjs` → Agent Advantage Report)

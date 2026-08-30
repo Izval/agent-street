@@ -1,21 +1,21 @@
 /**
- * LiveTicker — barra inferior "sala de control" (plan §5.9). Prop-driven: la
- * página pasa los datos (BNB price, gas, nº agentes); el componente NO hace
- * fetch. `.glass-hair`, `● Live` con `.live-dot`, micro-pulse al cambiar el
- * precio (WAAPI en efecto → SSR-safe, respeta reduced-motion). Datos nulos se
- * omiten (nada de "—" ruidoso). A11y: `role="status"` discreto.
+ * LiveTicker — "control room" bottom bar (plan §5.9). Prop-driven: the
+ * page passes the data (BNB price, gas, agent count); the component does NOT
+ * fetch. `.glass-hair`, `● Live` with `.live-dot`, micro-pulse when the
+ * price changes (WAAPI in effect → SSR-safe, respects reduced-motion). Null data is
+ * omitted (no noisy "—"). A11y: discreet `role="status"`.
  */
 
 import { useEffect, useRef, useState } from "react";
 
 export interface LiveTickerProps {
-  /** Precio BNB en USD (CMC). null → se omite. */
+  /** BNB price in USD (CMC). null → omitted. */
   bnbPriceUsd?: number | null;
-  /** Gas en gwei (RPC). null → se omite. */
+  /** Gas in gwei (RPC). null → omitted. */
   gasGwei?: number | null;
-  /** Nº de agentes indexados. null → se omite. */
+  /** Number of indexed agents. null → omitted. */
   agentCount?: number | null;
-  /** true mientras el indexer BSC está poniéndose al día. */
+  /** true while the BSC indexer is catching up. */
   indexing?: boolean;
 }
 
@@ -54,7 +54,7 @@ export function LiveTicker({
   return (
     <div
       role="status"
-      aria-label="Estado en vivo de la red BSC"
+      aria-label="Live BSC network status"
       className="glass-hair sticky bottom-0 z-40 flex items-center gap-2.5 overflow-x-auto px-4 py-2 text-xs text-text-2"
     >
       <span className="flex shrink-0 items-center gap-1.5 font-semibold text-up">
@@ -103,7 +103,7 @@ export function LiveTicker({
             <span className="tnum font-semibold text-text">
               {agentCount.toLocaleString("en-US")}
             </span>
-            <span className="text-text-3">agentes</span>
+            <span className="text-text-3">agents</span>
           </span>
         </>
       )}

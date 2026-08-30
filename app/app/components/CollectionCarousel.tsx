@@ -1,12 +1,12 @@
 /**
- * CollectionCarousel — fila horizontal scroll-snap (DESIGN.md v3 §5.6).
+ * CollectionCarousel — horizontal scroll-snap row (DESIGN.md v3 §5.6).
  *
- * Encabezado (título + barra de acento + "Ver todos →"), pista `overflow-x-auto
- * snap-x` de children (AgentCards), flechas que aparecen en hover y desplazan una
- * página, y fades en los bordes que se desvanecen en los extremos.
+ * Header (title + accent bar + "See all →"), an `overflow-x-auto snap-x` track
+ * of children (AgentCards), arrows that appear on hover and scroll one
+ * page, and edge fades that disappear at the ends.
  *
- * Reemplaza conceptualmente a `CollectionRow`; NO lo borra. SSR-safe: el estado de
- * scroll (para mostrar/ocultar flechas y fades) se calcula en efectos de cliente.
+ * Conceptually replaces `CollectionRow`; does NOT delete it. SSR-safe: the scroll
+ * state (to show/hide arrows and fades) is computed in client effects.
  */
 
 import { Children, useCallback, useEffect, useRef, useState } from "react";
@@ -57,7 +57,7 @@ export function CollectionCarousel({
 
   return (
     <section className="group/coll relative">
-      {/* Encabezado. */}
+      {/* Header. */}
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <span
@@ -72,12 +72,12 @@ export function CollectionCarousel({
             to={seeAllTo}
             className="shrink-0 text-sm font-semibold text-text-2 transition-colors hover:text-brand"
           >
-            Ver todos →
+            See all →
           </Link>
         )}
       </div>
 
-      {/* Pista + fades + flechas. */}
+      {/* Track + fades + arrows. */}
       <div className="relative">
         <div
           ref={trackRef}
@@ -96,7 +96,7 @@ export function CollectionCarousel({
           ))}
         </div>
 
-        {/* Fades de borde. */}
+        {/* Edge fades. */}
         <div
           aria-hidden
           className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-bg to-transparent transition-opacity duration-200"
@@ -108,12 +108,12 @@ export function CollectionCarousel({
           style={{ opacity: canRight ? 1 : 0 }}
         />
 
-        {/* Flechas (aparecen en hover; deshabilitadas en los extremos). */}
+        {/* Arrows (appear on hover; disabled at the ends). */}
         <button
           type="button"
           onClick={() => page(-1)}
           disabled={!canLeft}
-          aria-label="Desplazar a la izquierda"
+          aria-label="Scroll left"
           className="glass-hair absolute left-2 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-[999px] text-text opacity-0 transition-opacity duration-200 hover:text-brand focus-visible:opacity-100 disabled:pointer-events-none disabled:opacity-0 group-hover/coll:opacity-100"
         >
           ‹
@@ -122,7 +122,7 @@ export function CollectionCarousel({
           type="button"
           onClick={() => page(1)}
           disabled={!canRight}
-          aria-label="Desplazar a la derecha"
+          aria-label="Scroll right"
           className="glass-hair absolute right-2 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-[999px] text-text opacity-0 transition-opacity duration-200 hover:text-brand focus-visible:opacity-100 disabled:pointer-events-none disabled:opacity-0 group-hover/coll:opacity-100"
         >
           ›

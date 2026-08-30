@@ -1,0 +1,16 @@
+name = "agent-street-mcp"
+main = "src/index.ts"
+compatibility_date = "2026-08-17"
+
+[vars]
+ALLOWED_ORIGIN = "*"
+# Public base URLs of the workers this MCP server composes into tools.
+PROXY_8004_URL = "https://agent-street-8004-proxy.zevlat.workers.dev"
+HIRE_X402_URL = "https://agent-street-hire-x402.zevlat.workers.dev"
+ANALYTICS_URL = "https://agent-street-analytics.zevlat.workers.dev"
+INDEXER_URL = "https://agent-street-onchain-indexer.zevlat.workers.dev"
+MCP_SERVER_NAME = "agent-street-mcp"
+
+# No KV, no secrets: the MCP server is a stateless read-through/relay. It never
+# signs or custodies keys — money is signed by the CLIENT (client-pays) and
+# verified on-chain by hire-x402. Rate-limit uses caches.default, like the others.

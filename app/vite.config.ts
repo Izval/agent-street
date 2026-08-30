@@ -9,6 +9,11 @@ export default defineConfig({
     tailwindcss(),
     reactRouter(),
   ],
+  // WalletConnect/wagmi esperan `global` en el cliente; el bundle CF no lo expone.
+  // (Buffer se inyecta en runtime vía app/lib/wallet/polyfill.ts.)
+  define: {
+    global: "globalThis",
+  },
   resolve: {
     tsconfigPaths: true,
   },

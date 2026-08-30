@@ -1,7 +1,7 @@
 /**
- * KpiTile — tile de KPI para el dashboard de detalle (DESIGN.md v2 §17.2).
- * Valor grande con numerales tabulares; delta con signo y color up/down
- * (verde/rojo SOLO para datos, §2.3); `hint` en --text-3 ("since indexed").
+ * KpiTile — KPI tile for the detail dashboard (DESIGN.md v2 §17.2).
+ * Large value with tabular numerals; signed delta and up/down color
+ * (green/red ONLY for data, §2.3); `hint` in --text-3 ("since indexed").
  */
 
 import type { ReactNode } from "react";
@@ -30,10 +30,10 @@ export function KpiTile({
 }: {
   label: string;
   value: ReactNode;
-  /** Cambio ya formateado, p.ej. "12.4%" o "+1.2". El signo/flecha lo pone el tono. */
+  /** Already-formatted change, e.g. "12.4%" or "+1.2". The sign/arrow comes from the tone. */
   delta?: string;
   tone?: Tone;
-  /** Nota de procedencia del dato, p.ej. "since indexed". */
+  /** Data provenance note, e.g. "since indexed". */
   hint?: string;
   glass?: boolean;
 }) {

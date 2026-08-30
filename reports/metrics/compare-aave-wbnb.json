@@ -1,0 +1,43 @@
+{
+  "pair": "AAVE-WBNB",
+  "scale": "1d",
+  "candles": 365,
+  "typical_width_pct": 15.1,
+  "ivl": {
+    "gross_fees": 123.26,
+    "il": 107.55,
+    "hoard": 0,
+    "rebalances": 9,
+    "time_deployed": 0.731,
+    "time_in_range": 0.259,
+    "net": 2.21
+  },
+  "naive": {
+    "gross_fees": 297.77,
+    "il": 289.39,
+    "hoard": 0,
+    "rebalances": 32,
+    "time_deployed": 1,
+    "time_in_range": 1,
+    "net": -39.63
+  },
+  "random": {
+    "gross_fees": 267.761,
+    "il": 265.8795,
+    "hoard": 0,
+    "rebalances": 32,
+    "time_deployed": 1,
+    "time_in_range": 0.9942,
+    "net": -46.1935
+  },
+  "uplift_vs_random": {
+    "pct": null,
+    "turnaround": true,
+    "delta": 48.4
+  },
+  "uplift_vs_naive": {
+    "pct": null,
+    "turnaround": true,
+    "delta": 41.84
+  }
+}

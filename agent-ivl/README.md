@@ -104,8 +104,18 @@ venv del CLI activo (`source .venv/bin/activate`), dentro de `ivlrebalancer/`:
    ```bash
    (cd app/agent && ./.venv/bin/bag dev)                # usa el venv del agente para que las deps casen
    ```
-5. **Ejecutar el rebalanceo real** (con wallet fondeada): implementa/activa
-   `rebalance.execute_rebalance` (hoy lanza `NotImplementedError` a propósito, con el plan de mint listo).
+5. **Ejecutar el rebalanceo real** (con wallet fondeada): `rebalance.execute_rebalance` ya está
+   **implementado** (approve→mint; y decrease+collect[+burn]→mint para rewiden/reset). Gated: firma con
+   `get_wallet()` y exige saldo. Dispara por CLI:
+   ```bash
+   # El mint v3 gasta WBNB/USDT (ERC20), NO tBNB nativo. Primero envuelve tBNB→WBNB
+   # (deposit() en el contrato WBNB 0xae13…a7cd) y consigue algo de USDT testnet.
+   (cd app/agent && ./.venv/bin/python rebalance.py --pair BNB-USDT --execute --cap-base 0.02)
+   # → { steps:{approvals,mint_tx}, token_id, explorer: testnet.bscscan.com/tx/… }
+   ```
+   > ⚠ El pool de testnet está mal-preciado (ver nota arriba): la posición saldrá **single-sided /
+   > out-of-range**. El **mecanismo** (approve+mint+orientación) queda probado onchain con un tx real
+   > verificable; la **evidencia de fees** (bounty PancakeSwap) sale del `reports/` sobre datos reales.
 6. **Deploy gestionado — AL FINAL, cerca del judging:** `bag deploy prepare` → `bag platform login`
    + `bag deploy agent`. ⚠ **Arranca el reloj de 48h del trial** — no lo dispares antes de tener todo listo.
    ⚠ Recuerda: para el deploy gestionado usa una wallet **throwaway** (no la fondeada real).

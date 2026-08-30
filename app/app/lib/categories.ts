@@ -1,10 +1,10 @@
 /**
- * Shim de compatibilidad → la fuente de verdad es ahora `lib/taxonomy.ts`.
+ * Compatibility shim → the source of truth is now `lib/taxonomy.ts`.
  *
- * Durante la transición a la taxonomía de 2 niveles (v2), este módulo sigue
- * exponiendo `Category`, `CATEGORIES` y `CATEGORY_LABELS` limitados a las 4
- * categorías OBLIGATORIAS del hackathon, para no romper los componentes/rutas
- * existentes. El código nuevo debe importar de `taxonomy.ts`.
+ * During the transition to the 2-level taxonomy (v2), this module still exposes
+ * `Category`, `CATEGORIES` and `CATEGORY_LABELS` limited to the 4 MANDATORY
+ * hackathon categories, so as not to break existing components/routes. New code
+ * should import from `taxonomy.ts`.
  */
 
 import {
@@ -15,7 +15,7 @@ import {
 
 export type Category = TaxCategory;
 
-/** Solo las 4 obligatorias (compat). El código nuevo usa `AISLES`/`CATEGORY_DEFS`. */
+/** Only the 4 mandatory ones (compat). New code uses `AISLES`/`CATEGORY_DEFS`. */
 export const CATEGORIES: Category[] = REQUIRED_CATEGORIES;
 
 export const CATEGORY_LABELS = Object.fromEntries(

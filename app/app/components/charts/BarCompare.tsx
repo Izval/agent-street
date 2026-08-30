@@ -1,10 +1,10 @@
 /**
- * BarCompare — APY por protocolo (DESIGN.md v2 §15, plantilla `yield`).
- * Barras horizontales SVG, extremo de dato redondeado 4px anclado a baseline
- * (cuadrado a la izquierda), gap ≥2px entre barras. La barra `highlight` usa
- * `--brand` (énfasis escaso); el resto `--series-1` (misma medida = una serie).
- * Etiqueta de valor directa en la punta; texto con tokens de texto. Tooltip por
- * barra. Escala uniforme → esquinas circulares y texto nítido. SSR-safe.
+ * BarCompare — APY by protocol (DESIGN.md v2 §15, `yield` template).
+ * Horizontal SVG bars, the data end rounded 4px anchored to the baseline
+ * (square on the left), gap ≥2px between bars. The `highlight` bar uses
+ * `--brand` (scarce emphasis); the rest `--series-1` (same measure = one series).
+ * Value label directly at the tip; text with text tokens. Tooltip per
+ * bar. Uniform scale → circular corners and crisp text. SSR-safe.
  */
 
 import { useState } from "react";
@@ -23,8 +23,8 @@ export interface BarCompareProps {
 const VBW = 320;
 const ROW_H = 30;
 const BAR_H = 14;
-const GUTTER = 96; // etiqueta de categoría
-const RIGHT = 44; // reserva para etiqueta de valor
+const GUTTER = 96; // category label
+const RIGHT = 44; // reserved for value label
 const PAD_TOP = 4;
 
 function fmtValue(n: number): string {
@@ -36,7 +36,7 @@ function fmtValue(n: number): string {
   return n.toLocaleString("en-US", { maximumFractionDigits: 4 });
 }
 
-// rect con esquinas derechas redondeadas (r) y lado izquierdo cuadrado (baseline).
+// rect with rounded right corners (r) and a square left side (baseline).
 function roundedRightRect(
   x: number,
   y: number,
@@ -63,7 +63,7 @@ export function BarCompare({ bars, unit }: BarCompareProps) {
   if (!bars || bars.length === 0) {
     return (
       <div className="flex h-[90px] items-center justify-center rounded-[8px] border border-border bg-surface text-xs text-text-3">
-        Sin datos
+        No data
       </div>
     );
   }
@@ -81,7 +81,7 @@ export function BarCompare({ bars, unit }: BarCompareProps) {
         height="auto"
         preserveAspectRatio="xMidYMid meet"
         role="img"
-        aria-label={`Comparativa: ${bars
+        aria-label={`Comparison: ${bars
           .map((b) => `${b.label} ${fmtValue(b.value)}${suffix}`)
           .join(", ")}`}
         style={{ display: "block" }}
@@ -119,7 +119,7 @@ export function BarCompare({ bars, unit }: BarCompareProps) {
                 {fmtValue(b.value)}
                 {suffix}
               </text>
-              {/* hit target de fila */}
+              {/* row hit target */}
               <rect
                 x={0}
                 y={y}

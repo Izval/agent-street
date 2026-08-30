@@ -75,6 +75,13 @@ class RegisterResponse(BaseModel):
     detail: str | None = None
 
 
+# Bajo `from __future__ import annotations` las anotaciones son strings; pydantic 2 debe
+# resolver el forward-ref de `Literal` (status/mode) al validar. Sin este rebuild explícito,
+# construir RegisterResponse lanza "class not fully defined" y TODO /v1/register falla.
+RegisterRequest.model_rebuild()
+RegisterResponse.model_rebuild()
+
+
 app = FastAPI(title="agent-street registrar", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,

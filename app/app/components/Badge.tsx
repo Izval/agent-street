@@ -36,7 +36,7 @@ export function X402Badge() {
   );
 }
 
-/** Honestidad de Data Quality: 8004scan en vivo vs seed curado. */
+/** Data Quality honesty: live 8004scan vs curated seed. */
 export function SourceBadge({ source }: { source: AgentSource }) {
   if (source === "8004scan") {
     return (

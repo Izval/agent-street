@@ -8,15 +8,30 @@ import {
   categoryLabel,
   type Aisle,
 } from "../lib/taxonomy";
-import { FLAGSHIP_ID } from "../lib/seed";
 import { AppShell } from "../components/AppShell";
-import { CollectionRow } from "../components/CollectionRow";
-import { AgentCard } from "../components/AgentCard";
+import { CategoryHero } from "../components/CategoryHero";
+import { CollectionCarousel } from "../components/CollectionCarousel";
+import { AgentFeatureCard } from "../components/AgentFeatureCard";
 
-const PER_ROW = 6;
+/** Agents fetched per subcategory row (fills the carousel). */
+const PER_ROW = 8;
+
+/** Editorial tagline per aisle (top-level category). Sentence case, concrete. */
+const AISLE_TAGLINE: Record<Aisle, string> = {
+  trading:
+    "Agents that trade your capital with clear rules and verifiable onchain execution.",
+  defi: "Rebalancing, yield and health — DeFi agents that manage your capital onchain.",
+  nft: "Agents that track floor, volume and opportunities across NFT collections.",
+  rwa: "Agents that manage real-world assets tokenized on the chain.",
+  infra:
+    "Data, wallets and automation — the infrastructure other agents plug into.",
+  payments:
+    "x402 micropayments and job delegation between agents (ERC-8183).",
+  social: "Onchain sentiment, signals and narrative hunting.",
+};
 
 export function meta({ loaderData }: Route.MetaArgs) {
-  const label = loaderData?.aisle?.label ?? "Aisle";
+  const label = loaderData?.aisle?.label ?? "Category";
   return [{ title: `${label} — Agent-Street` }];
 }
 
@@ -36,52 +51,60 @@ export async function loader({ params }: Route.LoaderArgs) {
     agents: pages[i].agents,
   }));
 
-  return { aisle, rows };
+  // Honest hero metadata: total agents across subcategories + data source.
+  const total = pages.reduce((sum, p) => sum + p.pagination.total, 0);
+  const fromSeed = pages.length > 0 && pages.every((p) => p.fromSeed);
+
+  return { aisle, rows, total, fromSeed };
 }
 
 export default function AislePage({ loaderData }: Route.ComponentProps) {
-  const { aisle, rows } = loaderData;
+  const { aisle, rows, total, fromSeed } = loaderData;
+  const accent = aisle.accent;
+  const source = fromSeed ? "seed" : "8004scan";
+  const subCount = rows.length;
 
   return (
     <AppShell activeAisle={aisle.id as Aisle}>
-      <header className="py-2">
-        <div className="flex items-center gap-3">
-          <span
-            aria-hidden
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-surface-2 text-2xl"
-            style={{ color: aisle.accent }}
-          >
-            {aisle.glyph}
-          </span>
-          <div>
-            <h1 className="text-3xl font-bold">{aisle.label}</h1>
-            <p className="mt-1 text-sm text-text-3">
-              {rows.length} {rows.length === 1 ? "categoría" : "categorías"} ·
-              agentes ERC-8004 en BNB Chain
-            </p>
-          </div>
-        </div>
-      </header>
+      {/* Category hero (top-level category — same language as a subcategory). */}
+      <CategoryHero
+        label={aisle.label}
+        eyebrow="Marketplace"
+        parentTo="/"
+        tagline={AISLE_TAGLINE[aisle.id]}
+        count={total}
+        source={source}
+        templateLabel={`${subCount} ${
+          subCount === 1 ? "subcategory" : "subcategories"
+        }`}
+        accent={accent}
+        coverSeed={`aisle-${aisle.id}`}
+      />
 
+      {/* One carousel per subcategory. */}
       {rows.map((row) => (
-        <CollectionRow
-          key={row.id}
-          title={row.label}
-          seeAllTo={`/category/${row.id}`}
-          accent={aisle.accent}
-        >
-          {row.agents.length ? (
-            row.agents.map((a: Agent) => (
-              <div key={a.id} className="w-[300px] shrink-0 snap-start">
-                <AgentCard agent={a} featured={a.id === FLAGSHIP_ID} />
-              </div>
-            ))
-          ) : (
-            <p className="py-6 text-sm text-text-3">
-              Sin agentes indexados en esta categoría todavía.
-            </p>
-          )}
-        </CollectionRow>
+        <div key={row.id} className="mt-8">
+          <CollectionCarousel
+            title={row.label}
+            seeAllTo={`/category/${row.id}`}
+            accent={accent}
+          >
+            {row.agents.length ? (
+              row.agents.map((a: Agent) => (
+                <AgentFeatureCard
+                  key={a.id}
+                  agent={a}
+                  accent={accent}
+                  eyebrow={a.categoryLabel ?? row.label}
+                />
+              ))
+            ) : (
+              <p className="py-6 text-sm text-text-3">
+                No agents indexed in this subcategory yet.
+              </p>
+            )}
+          </CollectionCarousel>
+        </div>
       ))}
     </AppShell>
   );

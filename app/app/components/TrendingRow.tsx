@@ -1,8 +1,8 @@
 /**
- * TrendingRow — fila de demanda (plan §5.5). `#rank` · avatar/glyph · nombre +
- * verificado · métrica tabular · Δ% con signo+flecha (verde/rojo, "nuevo" si
- * null) · Sparkline. A11y: Δ no depende solo del color (lleva signo y flecha);
- * la fila es un Link. Hover resalta la fila.
+ * TrendingRow — demand row (plan §5.5). `#rank` · avatar/glyph · name +
+ * verified · tabular metric · Δ% with sign+arrow (green/red, "new" if
+ * null) · Sparkline. A11y: Δ does not depend on color alone (it carries a sign and arrow);
+ * the row is a Link. Hover highlights the row.
  */
 
 import { Link } from "react-router";
@@ -22,7 +22,7 @@ function DeltaBadge({ deltaPct }: { deltaPct: number | null }) {
   if (deltaPct == null) {
     return (
       <span className="rounded-[999px] bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-3">
-        nuevo
+        new
       </span>
     );
   }
@@ -42,7 +42,7 @@ function DeltaBadge({ deltaPct }: { deltaPct: number | null }) {
 
 export function TrendingRow({ rank, row, metric }: TrendingRowProps) {
   const initial = row.name.trim().charAt(0).toUpperCase() || "?";
-  const metricNoun = metric === "hires" ? "contrataciones" : "vistas";
+  const metricNoun = metric === "hires" ? "hires" : "views";
   const sparkTone = row.deltaPct == null ? "brand" : row.deltaPct >= 0 ? "up" : "down";
 
   return (
@@ -73,7 +73,7 @@ export function TrendingRow({ rank, row, metric }: TrendingRowProps) {
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="flex items-center gap-1 truncate text-sm font-medium text-text">
           <span className="truncate">{row.name}</span>
-          <span className="text-focus" aria-label="Verificado" title="Verificado">
+          <span className="text-focus" aria-label="Verified" title="Verified">
             ✓
           </span>
         </span>

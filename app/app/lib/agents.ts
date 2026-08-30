@@ -1,14 +1,14 @@
 /**
- * Cliente del Worker proxy a 8004scan (workers/8004-proxy).
+ * Client for the proxy Worker to 8004scan (workers/8004-proxy).
  *
- * Espeja deliberadamente los tipos `Agent`/`AgentsPage`/`Pagination` del proxy
- * (workers/8004-proxy/src/index.ts) — igual que lib/categories.ts espeja las
- * categorías. No se puede importar cross-package (tsconfig separados); mantener
- * en sync a mano.
+ * Deliberately mirrors the `Agent`/`AgentsPage`/`Pagination` types from the proxy
+ * (workers/8004-proxy/src/index.ts) — just like lib/categories.ts mirrors the
+ * categories. Cross-package imports aren't possible (separate tsconfigs); keep
+ * them in sync by hand.
  *
- * Regla de oro (Data Quality del hackathon): las categorías NUNCA quedan en
- * blanco. Si el proxy falla / rate-limita / devuelve vacío, caemos al seed
- * curado (lib/seed.ts) y marcamos la fuente honestamente.
+ * Golden rule (hackathon Data Quality): categories are NEVER left blank. If the
+ * proxy fails / rate-limits / returns empty, we fall back to the curated seed
+ * (lib/seed.ts) and mark the source honestly.
  */
 
 import type { Category } from "./categories";
@@ -18,7 +18,7 @@ import type { Reputation, AgentServices } from "./contracts";
 
 export type AgentSource = "8004scan" | "seed";
 
-/** Forma normalizada que expone el proxy (métricas onchain reales de 8004scan). */
+/** Normalized shape exposed by the proxy (real onchain metrics from 8004scan). */
 export interface Agent {
   id: string; // token_id
   agentId: string; // "56:0x…:tokenId"
@@ -30,7 +30,7 @@ export interface Agent {
   imageUrl?: string;
   category: Category | null;
   categoryLabel: string | null;
-  // Métricas onchain reales (Data Quality). Nombres honestos de 8004scan.
+  // Real onchain metrics (Data Quality). Honest names from 8004scan.
   stars: number;
   score: number;
   avgScore: number;
@@ -38,12 +38,12 @@ export interface Agent {
   healthScore: number | null;
   isVerified: boolean;
   x402Supported: boolean;
-  // Ranking real (8004scan) — útil en cards y detalle.
+  // Real ranking (8004scan) — useful in cards and detail.
   rank?: number | null;
   networkRank?: number | null;
   ownerAddress?: string;
   agentWallet?: string;
-  // Publisher/owner enriquecido (8004scan) — para el header del detalle.
+  // Enriched publisher/owner (8004scan) — for the detail header.
   ownerUsername?: string | null;
   ownerEns?: string | null;
   ownerAvatarUrl?: string | null;
@@ -54,7 +54,7 @@ export interface Agent {
   source: AgentSource;
 }
 
-/** Respuesta del detalle del proxy: agente + reputación + services (WS1.1). */
+/** Proxy detail response: agent + reputation + services (WS1.1). */
 export type AgentDetailRaw = Agent & {
   reputation: Reputation | null;
   services: AgentServices | null;
@@ -72,9 +72,9 @@ export interface AgentsPage {
   count: number;
   pagination: Pagination;
   categories: Array<{ id: Category; label: string }>;
-  /** true si el proxy respondió anónimo (rate-limit más bajo, pero funciona). */
+  /** true if the proxy responded anonymously (lower rate-limit, but works). */
   anonymous?: boolean;
-  /** true si TODO el listado vino del seed curado (proxy caído/vacío). */
+  /** true if the ENTIRE listing came from the curated seed (proxy down/empty). */
   fromSeed?: boolean;
 }
 
@@ -91,7 +91,7 @@ const categoriesMeta = () =>
     label: CATEGORY_LABELS[id],
   }));
 
-/** Página armada 100% desde el seed (fallback total o enriquecimiento). */
+/** Page built 100% from the seed (full fallback or enrichment). */
 function seedPage(params: ListParams): AgentsPage {
   const all = params.category ? seedByCategory(params.category) : SEED_AGENTS;
   const filtered = params.search
@@ -120,8 +120,8 @@ function seedPage(params: ListParams): AgentsPage {
 }
 
 /**
- * Enriquece una página del proxy con seed cuando viene flaca, para que ninguna
- * categoría se vea vacía frente al jurado. Dedup por tokenId+name.
+ * Enriches a proxy page with seed data when it comes back thin, so no category
+ * looks empty in front of the jury. Dedup by tokenId+name.
  */
 function enrich(page: AgentsPage, params: ListParams): AgentsPage {
   const MIN = 3;
@@ -175,7 +175,7 @@ export function createAgentsClient(opts: { baseUrl: string; signal?: AbortSignal
     }
   }
 
-  /** Detalle enriquecido (agent + reputation + services). Fallback a seed sin reputación. */
+  /** Enriched detail (agent + reputation + services). Falls back to seed without reputation. */
   async function getDetail(tokenId: string): Promise<AgentDetailRaw | null> {
     try {
       const res = await fetch(
@@ -184,7 +184,7 @@ export function createAgentsClient(opts: { baseUrl: string; signal?: AbortSignal
       );
       if (res.ok) return (await res.json()) as AgentDetailRaw;
     } catch {
-      /* cae al seed abajo */
+      /* falls through to the seed below */
     }
     const seed = seedAgentById(tokenId);
     return seed ? { ...seed, reputation: null, services: null } : null;

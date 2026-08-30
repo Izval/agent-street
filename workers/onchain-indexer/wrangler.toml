@@ -12,8 +12,8 @@ compatibility_date = "2026-08-17"
 # y pegar los ids aquí. Para `wrangler dev`, Miniflare simula KV sin ids reales.
 [[kv_namespaces]]
 binding = "INDEXER_KV"
-id = "REPLACE_WITH_KV_ID"
-preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+id = "08a48fac6f2b46c8a2fe6fb238cf6497"
+preview_id = "eea041f0fe6248c4a5a5d3b07e117174"
 
 [vars]
 # CORS: el front (Pages) consumirá este indexer. Ajustar al dominio real en prod.

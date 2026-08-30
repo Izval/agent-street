@@ -1,0 +1,32 @@
+{
+  "pair": "ETH-USDT",
+  "params": {
+    "lookback": 96,
+    "hold": 48,
+    "step": 16,
+    "scales": [
+      "15m",
+      "1h",
+      "4h",
+      "1d"
+    ]
+  },
+  "evaluations": 54,
+  "ivl_range": {
+    "timeInRange": 0.8587962962962962,
+    "breakoutRate": 0.3888888888888889,
+    "feeEfficiency": 0.8118378299210164
+  },
+  "naive_wide_range": {
+    "timeInRange": 0.8676697530864196,
+    "breakoutRate": 0.3333333333333333,
+    "feeEfficiency": 0.7425231631858745
+  },
+  "fee_efficiency_gain": 1.093,
+  "when_skill_enters": {
+    "n": 4,
+    "timeInRange": 1,
+    "breakoutRate": 0,
+    "feeEfficiency": 0.5365771269802145
+  }
+}

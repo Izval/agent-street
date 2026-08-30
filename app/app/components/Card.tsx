@@ -1,7 +1,7 @@
 /**
- * Card — wrapper reutilizable con borde/radio (DESIGN.md §5, v2 §13).
- * Variante `glass` (solo bloques grandes/hero/overlays, nunca data cards densas).
- * `accent` pinta una barra superior sutil por aisle (no fondo → no compite con el amarillo).
+ * Card — reusable wrapper with border/radius (DESIGN.md §5, v2 §13).
+ * `glass` variant (only large blocks/hero/overlays, never dense data cards).
+ * `accent` paints a subtle top bar per aisle (no background → doesn't compete with the yellow).
  */
 
 import type { CSSProperties, ReactNode } from "react";
@@ -14,7 +14,7 @@ export function Card({
   children,
 }: {
   glass?: boolean;
-  /** Token de acento por aisle, p.ej. `var(--accent-defi)`. */
+  /** Accent token per aisle, e.g. `var(--accent-defi)`. */
   accent?: string;
   className?: string;
   style?: CSSProperties;

@@ -10,8 +10,8 @@ compatibility_date = "2026-08-17"
 # y pegar los ids aquí. Para `wrangler dev`, Miniflare simula KV sin ids reales.
 [[kv_namespaces]]
 binding = "AGENTS_KV"
-id = "REPLACE_WITH_KV_ID"
-preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+id = "48df5fb2f0114b788b96093eac73ee4f"
+preview_id = "09098ef7959a4625b62f438c749c78b9"
 
 [vars]
 # CORS: el front (Pages) consumirá este proxy. Ajustar al dominio real en prod.

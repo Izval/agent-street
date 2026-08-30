@@ -1,16 +1,10 @@
-import { env } from "cloudflare:workers";
 import { Link } from "react-router";
 
 import type { Route } from "./+types/skill";
 import { skillById } from "../lib/skills";
 import { aisleOf, categoryLabel, type Aisle } from "../lib/taxonomy";
-import { createIvlClient } from "../lib/ivl";
 import { AppShell } from "../components/AppShell";
 import { Card } from "../components/Card";
-import { ScoreMeter } from "../components/ScoreMeter";
-import { LiveBadge } from "../components/Badge";
-
-const FLAGSHIP_PAIR = "BNB-USDT";
 
 export function meta({ loaderData }: Route.MetaArgs) {
   return [{ title: `${loaderData?.skill?.name ?? "Skill"} — Agent-Street` }];
@@ -19,21 +13,19 @@ export function meta({ loaderData }: Route.MetaArgs) {
 export async function loader({ params }: Route.LoaderArgs) {
   const skill = skillById(params.id);
   if (!skill) throw new Response("Not found", { status: 404 });
+  return { skill };
+}
 
-  // IVL skill trae score en vivo del motor (Data Quality real).
-  let ivlScore: number | null = null;
-  if (skill.provider === "IVL") {
-    const ivl = createIvlClient({ baseUrl: env.IVL_API_URL });
-    ivlScore = await ivl
-      .ticks(FLAGSHIP_PAIR)
-      .then((t) => t.ivl_score)
-      .catch(() => null);
+function hostOf(link: string): string {
+  try {
+    return new URL(link).hostname;
+  } catch {
+    return "source";
   }
-  return { skill, ivlScore };
 }
 
 export default function SkillDetail({ loaderData }: Route.ComponentProps) {
-  const { skill, ivlScore } = loaderData;
+  const { skill } = loaderData;
   const aisle = aisleOf(skill.category);
 
   return (
@@ -57,14 +49,7 @@ export default function SkillDetail({ loaderData }: Route.ComponentProps) {
             <span className="rounded-[999px] bg-surface-2 px-2.5 py-0.5 text-xs font-semibold text-text-2">
               {categoryLabel(skill.category)}
             </span>
-            <span
-              className={
-                "rounded-[999px] px-2.5 py-0.5 text-xs font-semibold " +
-                (skill.provider === "IVL"
-                  ? "bg-brand text-bg"
-                  : "bg-surface-2 text-text-2")
-              }
-            >
+            <span className="rounded-[999px] bg-surface-2 px-2.5 py-0.5 text-xs font-semibold text-text-2">
               {skill.provider}
             </span>
             <span className="text-xs text-text-3">{skill.protocol}</span>
@@ -89,30 +74,15 @@ export default function SkillDetail({ loaderData }: Route.ComponentProps) {
 
         <aside className="lg:sticky lg:top-24 lg:self-start">
           <Card className="p-6">
-            {ivlScore != null ? (
-              <ScoreMeter
-                score={ivlScore}
-                label={`IVL score · ${FLAGSHIP_PAIR}`}
-                size="lg"
-              />
-            ) : (
-              <div className="text-sm text-text-2">
-                Skill componible ERC-8183.
-              </div>
-            )}
+            <div className="text-sm text-text-2">Composable ERC-8183 skill.</div>
             <a
               href={skill.link}
               target="_blank"
               rel="noreferrer"
               className="mt-6 block rounded-[8px] border border-border px-5 py-3 text-center text-sm font-semibold text-text transition-colors hover:border-brand"
             >
-              Ver en {skill.provider === "IVL" ? "api.zvlint.com" : "Altana"} ↗
+              View on {hostOf(skill.link)} ↗
             </a>
-            {skill.provider === "IVL" && (
-              <div className="mt-3 flex justify-center">
-                <LiveBadge />
-              </div>
-            )}
           </Card>
         </aside>
       </div>

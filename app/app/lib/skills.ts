@@ -1,12 +1,10 @@
 /**
- * Catálogo curado de Skills componibles (tab Skills).
+ * Curated catalog of composable Skills (Skills tab).
  *
- * Las skills NO vienen de 8004scan (eso son agentes). Son módulos que un agente
- * enchufa (ERC-8183 / skills de Altana). Fuente: las 10 skills de Altana
- * (skills.altana.network) + IVL Skill como flagship (roadmap §6, CLAUDE.md §5).
- *
- * IVL se lista DOS veces en el marketplace: como Agent (lib/seed.ts) y como
- * Skill (aquí) — demuestra la composabilidad.
+ * Skills do NOT come from 8004scan (those are agents). They are modules an agent
+ * plugs in (ERC-8183 / Altana skills). Source: the 10 Altana skills
+ * (skills.altana.network) + the IVL range-quality skill, all as ordinary
+ * composable listings.
  */
 
 import type { Category } from "./categories";
@@ -18,11 +16,10 @@ export interface Skill {
   name: string;
   provider: SkillProvider;
   category: Category;
-  flagship?: boolean;
   description: string;
-  /** Protocolo/venue que toca la skill. */
+  /** Protocol/venue the skill touches. */
   protocol: string;
-  /** Con qué otras skills/agentes compone bien. */
+  /** Which other skills/agents it composes well with. */
   composableWith: string[];
   link: string;
 }
@@ -33,9 +30,8 @@ export const SKILLS: Skill[] = [
     name: "IVL — Range Quality",
     provider: "IVL",
     category: "rebalancing",
-    flagship: true,
     description:
-      "Puntúa la calidad de un rango para liquidez concentrada y devuelve tickLower/tickUpper listos para PancakeSwap v3. El cerebro del rebalanceo, enchufable a cualquier agente.",
+      "Scores the quality of a range for concentrated liquidity and returns tickLower/tickUpper ready for PancakeSwap v3. The brain of rebalancing, pluggable into any agent.",
     protocol: "PancakeSwap v3",
     composableWith: ["PancakeSwap Liquidity", "IVL Rebalancer"],
     link: "https://api.zvlint.com",
@@ -46,7 +42,7 @@ export const SKILLS: Skill[] = [
     provider: "Altana",
     category: "rebalancing",
     description:
-      "Abre y gestiona posiciones de liquidez en PancakeSwap. Ejecución LP componible para agentes de rebalanceo.",
+      "Opens and manages liquidity positions on PancakeSwap. Composable LP execution for rebalancing agents.",
     protocol: "PancakeSwap",
     composableWith: ["IVL — Range Quality"],
     link: "https://skills.altana.network",
@@ -57,7 +53,7 @@ export const SKILLS: Skill[] = [
     provider: "Altana",
     category: "rebalancing",
     description:
-      "Swaps y trading en PancakeSwap con enrutamiento de mejor precio. Base de ejecución para estrategias onchain.",
+      "Swaps and trading on PancakeSwap with best-price routing. Execution layer for onchain strategies.",
     protocol: "PancakeSwap",
     composableWith: ["Token Radar"],
     link: "https://skills.altana.network",
@@ -68,7 +64,7 @@ export const SKILLS: Skill[] = [
     provider: "Altana",
     category: "yield",
     description:
-      "Depósito, préstamo y gestión de posiciones en Aave V3. Componente de yield y de gestión de colateral.",
+      "Deposit, borrow and manage positions on Aave V3. A yield and collateral-management component.",
     protocol: "Aave V3",
     composableWith: ["Venus Lending"],
     link: "https://skills.altana.network",
@@ -79,7 +75,7 @@ export const SKILLS: Skill[] = [
     provider: "Altana",
     category: "yield",
     description:
-      "Suministro y préstamo en Venus (BSC). Motor de yield y fuente de datos de health factor.",
+      "Supply and borrow on Venus (BSC). A yield engine and a health-factor data source.",
     protocol: "Venus",
     composableWith: ["Aave V3 Lending"],
     link: "https://skills.altana.network",
@@ -90,7 +86,7 @@ export const SKILLS: Skill[] = [
     provider: "Altana",
     category: "yield",
     description:
-      "Liquid staking de BNB vía Lista (slisBNB) con recompensas y liquidez de salida.",
+      "Liquid staking of BNB via Lista (slisBNB) with rewards and exit liquidity.",
     protocol: "Lista",
     composableWith: ["Wallet Tracker"],
     link: "https://skills.altana.network",
@@ -101,7 +97,7 @@ export const SKILLS: Skill[] = [
     provider: "Altana",
     category: "grid",
     description:
-      "Replica las operaciones de wallets objetivo. Estrategia de seguimiento componible con grids y radares.",
+      "Replicates the trades of target wallets. A following strategy composable with grids and radars.",
     protocol: "BSC",
     composableWith: ["Wallet Tracker", "Token Radar"],
     link: "https://skills.altana.network",
@@ -112,7 +108,7 @@ export const SKILLS: Skill[] = [
     provider: "Altana",
     category: "grid",
     description:
-      "Trading en Four.meme para estrategias de momentum y ladder sobre tokens emergentes.",
+      "Trading on Four.meme for momentum and ladder strategies over emerging tokens.",
     protocol: "Four.meme",
     composableWith: ["Token Radar"],
     link: "https://skills.altana.network",
@@ -123,7 +119,7 @@ export const SKILLS: Skill[] = [
     provider: "Altana",
     category: "grid",
     description:
-      "Descubre y filtra tokens por señales onchain. Alimenta estrategias de trading y grid con candidatos.",
+      "Discovers and filters tokens by onchain signals. Feeds candidates to trading and grid strategies.",
     protocol: "BSC",
     composableWith: ["PancakeSwap Trading", "Copy Trade"],
     link: "https://skills.altana.network",
@@ -134,7 +130,7 @@ export const SKILLS: Skill[] = [
     provider: "Altana",
     category: "health",
     description:
-      "Rastrea posiciones y salud de wallets en tiempo real. Base de monitoreo de riesgo y health factor.",
+      "Tracks wallet positions and health in real time. A foundation for risk and health-factor monitoring.",
     protocol: "BSC",
     composableWith: ["x402 API Payments"],
     link: "https://skills.altana.network",
@@ -145,7 +141,7 @@ export const SKILLS: Skill[] = [
     provider: "Altana",
     category: "health",
     description:
-      "Pagos entre agentes vía x402 (EIP-3009). Habilita el hire flow y la delegación de tareas pagada.",
+      "Agent-to-agent payments via x402 (EIP-3009). Enables the hire flow and paid task delegation.",
     protocol: "x402",
     composableWith: ["IVL Rebalancer", "Wallet Tracker"],
     link: "https://docs.altana.network/sdk/x402-server",

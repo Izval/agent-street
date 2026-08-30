@@ -1,0 +1,46 @@
+# Render Blueprint — deploys the registrar (services/registrar) as a free web
+# service. This is the ONLY non-Cloudflare piece of Agent-Street; everything else
+# ships to Cloudflare (Pages + Workers) and is unrelated to this file.
+#
+# Deploy: Render dashboard → New → Blueprint → connect this repo. Render reads
+# this file, builds the Docker image, and prompts for the secret env vars marked
+# `sync: false` (paste TREASURY_PRIVATE_KEY there — it is NEVER committed).
+#
+# After it goes live you get a URL like https://agent-street-registrar.onrender.com.
+# Point the app at it: set REGISTRAR_URL to that URL in app/wrangler.jsonc, then
+# redeploy the Cloudflare app.
+#
+# ⚠ Free tier sleeps after ~15 min idle (~50s cold start). Keep it warm with an
+#   external ping to /health (e.g. UptimeRobot every 10 min) so the first
+#   "Publish" during judging doesn't time out.
+services:
+  - type: web
+    name: agent-street-registrar
+    runtime: docker
+    plan: free
+    region: oregon
+    rootDir: services/registrar
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      # Funded BSC-testnet wallet key — pays gas per register. LEFT UNSET here on
+      # purpose: paste it in the Render dashboard (secret). Without it the service
+      # runs in DRY_RUN (lists agents as "pending", mints nothing on-chain).
+      - key: TREASURY_PRIVATE_KEY
+        sync: false
+      # Password that encrypts the per-request ephemeral keystores. Random is fine
+      # (keystores are discarded after each register), so let Render generate it.
+      - key: WALLET_PASSWORD
+        generateValue: true
+      # CORS origin of the marketplace. Set to your Pages URL once known; "*" is
+      # acceptable for a testnet demo (no credentialed requests).
+      - key: ALLOWED_ORIGIN
+        value: "*"
+      - key: BSC_TESTNET_RPC
+        value: https://data-seed-prebsc-1-s1.bnbchain.org:8545
+      # tBNB funded to each ephemeral wallet (0.0015 BNB). ~0.002 tBNB/agent total.
+      - key: FUND_WEI
+        value: "1500000000000000"
+      - key: AGENT_ENDPOINT_BASE
+        value: https://agent-street.pages.dev

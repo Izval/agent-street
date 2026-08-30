@@ -1,7 +1,7 @@
 /**
- * Skeleton — primitivas de carga con shimmer (DESIGN.md v3 §21: sin spinners).
- * Bloque `.shimmer` parametrizable + variantes de composición (card, row).
- * SSR-safe: markup puro, la animación vive en CSS (`.shimmer`, reduced-motion).
+ * Skeleton — loading primitives with shimmer (DESIGN.md v3 §21: no spinners).
+ * Parameterizable `.shimmer` block + composition variants (card, row).
+ * SSR-safe: pure markup, the animation lives in CSS (`.shimmer`, reduced-motion).
  */
 
 type Rounded = "none" | "sm" | "md" | "lg" | "pill" | "full";
@@ -16,9 +16,9 @@ const ROUNDED: Record<Rounded, string> = {
 };
 
 export interface SkeletonProps {
-  /** Ancho CSS (px number → px, o cualquier valor CSS: "100%", "8rem"). */
+  /** CSS width (px number → px, or any CSS value: "100%", "8rem"). */
   width?: number | string;
-  /** Alto CSS (px number → px, o cualquier valor CSS). */
+  /** CSS height (px number → px, or any CSS value). */
   height?: number | string;
   rounded?: Rounded;
   className?: string;
@@ -44,7 +44,7 @@ export function Skeleton({
   );
 }
 
-/** Placeholder de una AgentCard (avatar + título + franja de datos + spark). */
+/** Placeholder for an AgentCard (avatar + title + data strip + spark). */
 export function SkeletonCard({ className = "" }: { className?: string }) {
   return (
     <div
@@ -68,7 +68,7 @@ export function SkeletonCard({ className = "" }: { className?: string }) {
   );
 }
 
-/** Placeholder de una fila densa (TrendingRow / AgentRow). */
+/** Placeholder for a dense row (TrendingRow / AgentRow). */
 export function SkeletonRow({ className = "" }: { className?: string }) {
   return (
     <div

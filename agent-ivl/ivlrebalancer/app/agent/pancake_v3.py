@@ -93,7 +93,9 @@ ERC20_ABI = [
     {"inputs": [{"type": "address"}, {"type": "address"}], "name": "allowance", "outputs": [{"type": "uint256"}], "stateMutability": "view", "type": "function"},
     {"inputs": [{"type": "address"}, {"type": "uint256"}], "name": "approve", "outputs": [{"type": "bool"}], "stateMutability": "nonpayable", "type": "function"},
 ]
-# NonfungiblePositionManager.mint(MintParams) — idéntico a Uniswap v3.
+# NonfungiblePositionManager — idéntico a Uniswap v3 (mint + ciclo de vida completo:
+# positions / decreaseLiquidity / collect / burn) + ERC721Enumerable (balanceOf /
+# tokenOfOwnerByIndex) para localizar la posición existente al rewiden/reset.
 NPM_ABI = [
     {"inputs": [{"components": [
         {"type": "address", "name": "token0"},
@@ -112,7 +114,45 @@ NPM_ABI = [
      "outputs": [{"type": "uint256", "name": "tokenId"}, {"type": "uint128", "name": "liquidity"},
                  {"type": "uint256", "name": "amount0"}, {"type": "uint256", "name": "amount1"}],
      "stateMutability": "payable", "type": "function"},
+    {"inputs": [{"type": "uint256", "name": "tokenId"}], "name": "positions",
+     "outputs": [
+        {"type": "uint96", "name": "nonce"}, {"type": "address", "name": "operator"},
+        {"type": "address", "name": "token0"}, {"type": "address", "name": "token1"},
+        {"type": "uint24", "name": "fee"}, {"type": "int24", "name": "tickLower"},
+        {"type": "int24", "name": "tickUpper"}, {"type": "uint128", "name": "liquidity"},
+        {"type": "uint256", "name": "feeGrowthInside0LastX128"},
+        {"type": "uint256", "name": "feeGrowthInside1LastX128"},
+        {"type": "uint128", "name": "tokensOwed0"}, {"type": "uint128", "name": "tokensOwed1"},
+     ], "stateMutability": "view", "type": "function"},
+    {"inputs": [{"components": [
+        {"type": "uint256", "name": "tokenId"}, {"type": "uint128", "name": "liquidity"},
+        {"type": "uint256", "name": "amount0Min"}, {"type": "uint256", "name": "amount1Min"},
+        {"type": "uint256", "name": "deadline"},
+     ], "internalType": "struct INonfungiblePositionManager.DecreaseLiquidityParams",
+        "name": "params", "type": "tuple"}],
+     "name": "decreaseLiquidity",
+     "outputs": [{"type": "uint256", "name": "amount0"}, {"type": "uint256", "name": "amount1"}],
+     "stateMutability": "payable", "type": "function"},
+    {"inputs": [{"components": [
+        {"type": "uint256", "name": "tokenId"}, {"type": "address", "name": "recipient"},
+        {"type": "uint128", "name": "amount0Max"}, {"type": "uint128", "name": "amount1Max"},
+     ], "internalType": "struct INonfungiblePositionManager.CollectParams",
+        "name": "params", "type": "tuple"}],
+     "name": "collect",
+     "outputs": [{"type": "uint256", "name": "amount0"}, {"type": "uint256", "name": "amount1"}],
+     "stateMutability": "payable", "type": "function"},
+    {"inputs": [{"type": "uint256", "name": "tokenId"}], "name": "burn",
+     "outputs": [], "stateMutability": "payable", "type": "function"},
+    {"inputs": [{"type": "address", "name": "owner"}], "name": "balanceOf",
+     "outputs": [{"type": "uint256"}], "stateMutability": "view", "type": "function"},
+    {"inputs": [{"type": "address", "name": "owner"}, {"type": "uint256", "name": "index"}],
+     "name": "tokenOfOwnerByIndex", "outputs": [{"type": "uint256"}],
+     "stateMutability": "view", "type": "function"},
 ]
+
+# Topic0 del evento ERC721 Transfer(address,address,uint256) — para leer el tokenId
+# minteado del recibo (el NPM emite el Transfer del NFT al recipient).
+TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
 
 # --- Web3 --------------------------------------------------------------------
@@ -276,3 +316,177 @@ def decode_mint_calldata(w3: Web3, calldata: str) -> dict[str, Any]:
                 "amount1Desired", "amount0Min", "amount1Min", "recipient", "deadline"]
         p = dict(zip(keys, p))
     return {"function": fn.fn_name, "params": p}
+
+
+# --- Broadcast: código fijo de firma (mismo lado que signing.py, NUNCA un tool LLM) ---
+# El agente es el ÚNICO firmante. `get_wallet().sign_transaction(tx)` → {"rawTransaction",..}
+# (bnbagent.wallets.evm_wallet_provider.EVMWalletProvider); broadcasteamos ese raw. Cada tx
+# se arma justo antes de enviarse y se espera su recibo, así el nonce (latest) auto-incrementa.
+
+# Gas por defecto cuando `estimate_gas` no aplica todavía (p.ej. mint antes de que el approve
+# esté minado, o decrease sobre una posición que aún no leímos). Topes holgados de testnet.
+DEFAULT_GAS = {"approve": 80_000, "mint": 700_000, "decrease": 350_000, "collect": 300_000, "burn": 150_000}
+
+
+def build_tx(
+    w3: Web3,
+    config: RebalancerConfig,
+    owner: str,
+    to: str,
+    data: str,
+    *,
+    value: int = 0,
+    gas_hint: str | None = None,
+) -> dict[str, Any]:
+    """Arma una tx legacy lista para firmar (nonce/gas/gasPrice/chainId).
+
+    Intenta ``estimate_gas``; si revierte (allowance/estado aún no listo) cae al tope
+    de :data:`DEFAULT_GAS` para ``gas_hint``. ``value`` en wei (0 para ERC20; >0 solo si
+    algún día se usa el path nativo BNB).
+    """
+    owner = Web3.to_checksum_address(owner)
+    tx: dict[str, Any] = {
+        "from": owner,
+        "to": Web3.to_checksum_address(to),
+        "data": data,
+        "value": value,
+        "chainId": config.chain_id,
+        "nonce": w3.eth.get_transaction_count(owner),
+        "gasPrice": w3.eth.gas_price,
+    }
+    try:
+        tx["gas"] = int(w3.eth.estimate_gas({"from": owner, "to": tx["to"], "data": data, "value": value}) * 1.2)
+    except Exception:  # noqa: BLE001 — estado no listo (p.ej. approve sin minar) → tope fijo
+        tx["gas"] = DEFAULT_GAS.get(gas_hint or "", 500_000)
+    return tx
+
+
+def send_tx(w3: Web3, wallet: Any, tx: dict[str, Any], *, timeout: float = 180.0) -> str:
+    """Firma con el wallet del SDK y broadcastea; espera recibo. Devuelve el tx hash 0x."""
+    signed = wallet.sign_transaction(tx)
+    raw = signed["rawTransaction"] if isinstance(signed, dict) else signed.raw_transaction
+    h = w3.eth.send_raw_transaction(raw)
+    w3.eth.wait_for_transaction_receipt(h, timeout=timeout)
+    return h.hex() if isinstance(h, bytes) else str(h)
+
+
+def _npm(w3: Web3, config: RebalancerConfig):
+    return w3.eth.contract(address=config.position_manager, abi=NPM_ABI)
+
+
+def encode_decrease_calldata(w3, config, token_id, liquidity, deadline, *, amount0_min=0, amount1_min=0) -> str:
+    return _npm(w3, config).encode_abi(
+        "decreaseLiquidity", args=[(token_id, int(liquidity), amount0_min, amount1_min, deadline)]
+    )
+
+
+def encode_collect_calldata(w3, config, token_id, recipient) -> str:
+    """collect con amountMax = uint128 máx (retira todo lo debido: principal + fees)."""
+    u128_max = (1 << 128) - 1
+    return _npm(w3, config).encode_abi(
+        "collect", args=[(token_id, Web3.to_checksum_address(recipient), u128_max, u128_max)]
+    )
+
+
+def encode_burn_calldata(w3, config, token_id) -> str:
+    return _npm(w3, config).encode_abi("burn", args=[int(token_id)])
+
+
+@dataclass(frozen=True)
+class ExistingPosition:
+    """Posición LP v3 existente del owner en el pool objetivo."""
+
+    token_id: int
+    liquidity: int
+    tick_lower: int
+    tick_upper: int
+    tokens_owed0: int
+    tokens_owed1: int
+
+
+def find_position(
+    w3: Web3, config: RebalancerConfig, owner: str, *, fee: int
+) -> ExistingPosition | None:
+    """Localiza la posición LP viva del ``owner`` para (base,quote,fee) del pool.
+
+    Recorre los NFTs del owner (ERC721Enumerable) y devuelve la primera con
+    ``liquidity > 0`` cuyos token0/token1/fee coinciden con el pool objetivo. None si
+    no hay ninguna (⇒ rewiden/reset degradan a abrir/mint).
+    """
+    config = config.checksummed()
+    npm = _npm(w3, config)
+    owner = Web3.to_checksum_address(owner)
+    want = {Web3.to_checksum_address(config.base_token), Web3.to_checksum_address(config.quote_token)}
+    try:
+        count = npm.functions.balanceOf(owner).call()
+    except Exception:  # noqa: BLE001 — sin NFTs / RPC sin enumerable
+        return None
+    for i in range(int(count)):
+        try:
+            tid = npm.functions.tokenOfOwnerByIndex(owner, i).call()
+            p = npm.functions.positions(tid).call()
+        except Exception:  # noqa: BLE001 — índice movido entre llamadas; sigue
+            continue
+        # positions(): [nonce, operator, token0, token1, fee, tickLower, tickUpper, liquidity, ...]
+        t0, t1, pfee, tl, tu, liq = p[2], p[3], p[4], p[5], p[6], p[7]
+        if int(pfee) != int(fee):
+            continue
+        if {Web3.to_checksum_address(t0), Web3.to_checksum_address(t1)} != want:
+            continue
+        if int(liq) <= 0:
+            continue
+        return ExistingPosition(
+            token_id=int(tid), liquidity=int(liq), tick_lower=int(tl), tick_upper=int(tu),
+            tokens_owed0=int(p[10]), tokens_owed1=int(p[11]),
+        )
+    return None
+
+
+def token_decimals(w3: Web3, token: str) -> int:
+    return int(w3.eth.contract(address=Web3.to_checksum_address(token), abi=ERC20_ABI).functions.decimals().call())
+
+
+def token_balance(w3: Web3, token: str, owner: str) -> int:
+    return int(
+        w3.eth.contract(address=Web3.to_checksum_address(token), abi=ERC20_ABI)
+        .functions.balanceOf(Web3.to_checksum_address(owner)).call()
+    )
+
+
+def size_amounts(
+    w3: Web3,
+    config: RebalancerConfig,
+    ivl: IvlTicks,
+    owner: str,
+    *,
+    cap_base_human: float = 0.02,
+    cap_quote_human: float | None = None,
+) -> tuple[int, int]:
+    """Dimensiona el depósito (amount_base_wei, amount_quote_wei) acotado por el saldo real.
+
+    Tope conservador de flagship testnet: ``cap_base_human`` de BASE (WBNB) y su equivalente
+    en QUOTE al precio superior del rango IVL. Nunca deposita más de lo que hay en la wallet.
+    """
+    config = config.checksummed()
+    base_dec = token_decimals(w3, config.base_token)
+    quote_dec = token_decimals(w3, config.quote_token)
+    if cap_quote_human is None:
+        cap_quote_human = cap_base_human * float(ivl.price_upper)
+    cap_base_wei = int(cap_base_human * (10 ** base_dec))
+    cap_quote_wei = int(cap_quote_human * (10 ** quote_dec))
+    base_bal = token_balance(w3, config.base_token, owner)
+    quote_bal = token_balance(w3, config.quote_token, owner)
+    return min(cap_base_wei, base_bal), min(cap_quote_wei, quote_bal)
+
+
+def minted_token_id(receipt: Any, owner: str) -> int | None:
+    """Extrae el tokenId minteado del recibo (evento ERC721 Transfer al owner)."""
+    owner_topic = "0x" + Web3.to_checksum_address(owner)[2:].lower().rjust(64, "0")
+    for log in getattr(receipt, "logs", []) or []:
+        topics = [t.hex() if isinstance(t, (bytes, bytearray)) else str(t) for t in log.get("topics", [])]
+        if len(topics) == 4 and topics[0].lower() == TRANSFER_TOPIC and topics[2].lower() == owner_topic:
+            try:
+                return int(topics[3], 16)
+            except ValueError:
+                return None
+    return None

@@ -1,0 +1,29 @@
+{
+  "pair": "CAKE-WBNB",
+  "params": {
+    "lookback": 96,
+    "hold": 48,
+    "step": 16,
+    "scales": [
+      "15m",
+      "1h",
+      "4h",
+      "1d"
+    ]
+  },
+  "evaluations": 54,
+  "ivl_range": {
+    "timeInRange": 0.7233796296296297,
+    "breakoutRate": 0.6481481481481481,
+    "feeEfficiency": 3055945.329806792
+  },
+  "naive_wide_range": {
+    "timeInRange": 0.8356481481481483,
+    "breakoutRate": 0.4444444444444444,
+    "feeEfficiency": 2621992.4338394497
+  },
+  "fee_efficiency_gain": 1.166,
+  "when_skill_enters": {
+    "n": 0
+  }
+}

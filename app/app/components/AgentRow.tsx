@@ -1,16 +1,16 @@
 /**
- * AgentRow — versión lista densa del agente (DESIGN.md v3 §5.7).
+ * AgentRow — dense list version of the agent (DESIGN.md v3 §5.7).
  *
- * Fila activada por el toggle grid/list del chrome. Columnas: nombre + categoría,
- * score (con tono), métrica secundaria (avg), demanda (sparkline) y acción "Ver".
- * Enlaza a `/agent/:id`. SSR-safe (sin efectos). Datos reales de 8004scan.
+ * Row toggled on by the chrome's grid/list switch. Columns: name + category,
+ * score (with tone), secondary metric (avg), demand (sparkline) and a "View" action.
+ * Links to `/agent/:id`. SSR-safe (no effects). Real data from 8004scan.
  */
 
 import { Link } from "react-router";
 import type { Agent } from "../lib/agents";
 import { aisleOf } from "../lib/taxonomy";
 import { AISLES } from "../lib/taxonomy";
-import { ivlScoreTone } from "../lib/ivl";
+import { scoreTone } from "../lib/score";
 import { Sparkline } from "./charts/Sparkline";
 import { SourceBadge } from "./Badge";
 
@@ -36,7 +36,7 @@ export function AgentRow({
   agent: Agent;
   demandSpark?: number[];
 }) {
-  const tone = ivlScoreTone(agent.score);
+  const tone = scoreTone(agent.score);
   const aisle = agent.category ? aisleOf(agent.category) : null;
   const accent = AISLES.find((a) => a.id === aisle)?.accent ?? "var(--brand)";
   const isLive = agent.source === "8004scan";
@@ -46,7 +46,7 @@ export function AgentRow({
       to={`/agent/${encodeURIComponent(agent.id)}`}
       className="group grid grid-cols-[1fr_auto] items-center gap-3 rounded-lg border border-border/60 bg-surface px-4 py-3 transition-colors hover:border-brand/50 hover:bg-surface-2 sm:grid-cols-[minmax(0,1fr)_72px_72px_100px_64px]"
     >
-      {/* Nombre + categoría. */}
+      {/* Name + category. */}
       <div className="flex min-w-0 items-center gap-3">
         <span
           aria-hidden
@@ -79,7 +79,7 @@ export function AgentRow({
         </div>
       </div>
 
-      {/* Avg (métrica secundaria). */}
+      {/* Avg (secondary metric). */}
       <div className="hidden text-right sm:block">
         <div className="text-[10px] uppercase tracking-wide text-text-3">Avg</div>
         <div className="tnum text-sm font-semibold text-text">
@@ -87,7 +87,7 @@ export function AgentRow({
         </div>
       </div>
 
-      {/* Demanda. */}
+      {/* Demand. */}
       <div className="hidden justify-self-end sm:block">
         {demandSpark && demandSpark.length > 0 ? (
           <Sparkline values={demandSpark} tone="brand" width={90} height={26} />
@@ -96,9 +96,9 @@ export function AgentRow({
         )}
       </div>
 
-      {/* Acción. */}
+      {/* Action. */}
       <span className="justify-self-end text-sm font-semibold text-text-2 transition-colors group-hover:text-brand">
-        Ver →
+        View →
       </span>
     </Link>
   );

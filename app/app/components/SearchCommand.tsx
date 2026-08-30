@@ -1,14 +1,14 @@
 /**
- * SearchCommand — overlay de comando ⌘K (plan §5.10). Presentacional +
- * navegación por teclado: los resultados los inyecta el padre (agents/
- * categories/skills), el componente sólo los muestra y navega. `.glass-frost`
- * centrado, ↑↓ mueven la selección, ↵ navega, Esc / clic en overlay cierran.
- * A11y: dialog modal, focus-trap básico, `aria-activedescendant` (el foco vive
- * en el input; los ítems se resaltan por descendant activo).
+ * SearchCommand — ⌘K command overlay (plan §5.10). Presentational +
+ * keyboard navigation: results are injected by the parent (agents/
+ * categories/skills); the component only displays and navigates them. `.glass-frost`
+ * centered, ↑↓ move the selection, ↵ navigates, Esc / click on overlay close.
+ * A11y: modal dialog, basic focus-trap, `aria-activedescendant` (focus lives
+ * in the input; items are highlighted via active descendant).
  *
- * SSR-safe: no accede a `window`/`document` en render; el listener global de
- * ⌘K vive en `useCommandK`, que sólo corre en efecto (cliente). El estado
- * `open` lo controla el padre.
+ * SSR-safe: does not access `window`/`document` in render; the global ⌘K
+ * listener lives in `useCommandK`, which only runs in effect (client). The
+ * `open` state is controlled by the parent.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -33,7 +33,7 @@ export interface SearchCommandProps {
   open: boolean;
   onClose: () => void;
   results?: SearchCommandResults;
-  /** Valor controlado del input (opcional; si se omite, es no controlado). */
+  /** Controlled input value (optional; if omitted, it is uncontrolled). */
   query?: string;
   onQueryChange?: (q: string) => void;
 }
@@ -49,20 +49,20 @@ function flatten(results?: SearchCommandResults): FlatItem[] {
     const id = str(a?.agentId ?? a?.id ?? a?.tokenId, "");
     out.push({
       key: `agent:${id || out.length}`,
-      label: str(a?.name, "Agente"),
+      label: str(a?.name, "Agent"),
       sub: str(a?.categoryLabel ?? a?.category),
       to: str(a?.to, id ? `/agent/${id}` : "#"),
-      group: "Agentes",
+      group: "Agents",
     });
   }
   for (const c of results.categories ?? []) {
     const id = str(c?.id, "");
     out.push({
       key: `cat:${id || out.length}`,
-      label: str(c?.label ?? c?.name, "Categoría"),
+      label: str(c?.label ?? c?.name, "Category"),
       sub: str(c?.aisle),
       to: str(c?.to, id ? `/category/${id}` : "#"),
-      group: "Categorías",
+      group: "Categories",
     });
   }
   for (const s of results.skills ?? []) {
@@ -92,7 +92,7 @@ export function SearchCommand({
 
   const items = useMemo(() => flatten(results), [results]);
 
-  // Foco al abrir + reset del índice activo.
+  // Focus on open + reset the active index.
   useEffect(() => {
     if (!open) return;
     setActive(0);
@@ -100,7 +100,7 @@ export function SearchCommand({
     return () => clearTimeout(t);
   }, [open]);
 
-  // Mantén el índice activo dentro de rango cuando cambian los resultados.
+  // Keep the active index within range when the results change.
   useEffect(() => {
     setActive((i) => (items.length === 0 ? 0 : Math.min(i, items.length - 1)));
   }, [items.length]);
@@ -139,7 +139,7 @@ export function SearchCommand({
       return;
     }
     if (e.key === "Tab") {
-      // Focus-trap básico: mantener el foco dentro del diálogo.
+      // Basic focus-trap: keep focus inside the dialog.
       const root = dialogRef.current;
       if (!root) return;
       const focusables = root.querySelectorAll<HTMLElement>(
@@ -172,7 +172,7 @@ export function SearchCommand({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Buscar en Agent-Street"
+        aria-label="Search Agent-Street"
         onKeyDown={onKeyDown}
         className="glass-frost w-full max-w-xl overflow-hidden rounded-lg"
       >
@@ -189,7 +189,7 @@ export function SearchCommand({
             aria-controls="cmdk-list"
             aria-activedescendant={activeId ? `cmdk-${activeId}` : undefined}
             aria-autocomplete="list"
-            placeholder="Buscar agentes, categorías, skills…"
+            placeholder="Search agents, categories, skills…"
             value={query}
             onChange={(e) => onQueryChange?.(e.target.value)}
             className="tnum flex-1 bg-transparent text-sm text-text placeholder:text-text-3 outline-none"
@@ -199,16 +199,16 @@ export function SearchCommand({
           </kbd>
         </div>
 
-        {/* Resultados */}
+        {/* Results */}
         <ul
           id="cmdk-list"
           role="listbox"
-          aria-label="Resultados"
+          aria-label="Results"
           className="max-h-[52vh] overflow-y-auto p-2"
         >
           {items.length === 0 ? (
             <li className="px-3 py-8 text-center text-sm text-text-3">
-              Escribe para buscar agentes, categorías y skills.
+              Type to search agents, categories and skills.
             </li>
           ) : (
             groups.map((g) => (
@@ -269,8 +269,8 @@ function groupBy(items: FlatItem[]): { group: string; items: FlatItem[] }[] {
 }
 
 /**
- * useCommandK — registra el atajo ⌘K / Ctrl-K y llama `onOpen`. SSR-safe: el
- * listener se instala en efecto (cliente). El padre mantiene el estado `open`.
+ * useCommandK — registers the ⌘K / Ctrl-K shortcut and calls `onOpen`. SSR-safe: the
+ * listener is installed in effect (client). The parent holds the `open` state.
  */
 export function useCommandK(onOpen: () => void) {
   const ref = useRef(onOpen);

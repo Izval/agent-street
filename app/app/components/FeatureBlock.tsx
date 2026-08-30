@@ -1,7 +1,7 @@
 /**
- * FeatureBlock — tarjeta grande editorial para destacar un agente/colección
- * (DESIGN.md v2 §12–§14). Glass sutil + acento por aisle (barra + eyebrow),
- * copy en sentence case. Hover sutil (elevación por color/borde, no sombra pesada).
+ * FeatureBlock — large editorial card to highlight an agent/collection
+ * (DESIGN.md v2 §12–§14). Subtle glass + aisle accent (bar + eyebrow),
+ * sentence-case copy. Subtle hover (elevation via color/border, not a heavy shadow).
  */
 
 import type { CSSProperties, ReactNode } from "react";
@@ -19,9 +19,9 @@ export function FeatureBlock({
   title: string;
   description?: string;
   to: string;
-  /** Token de acento por aisle, p.ej. `var(--accent-defi)`. */
+  /** Aisle accent token, e.g. `var(--accent-defi)`. */
   accent?: string;
-  /** Slot visual opcional (imagen/ilustración/insignia). */
+  /** Optional visual slot (image/illustration/badge). */
   media?: ReactNode;
 }) {
   const accentStyle: CSSProperties | undefined = accent
@@ -61,7 +61,7 @@ export function FeatureBlock({
         )}
       </div>
       <div className="relative mt-4 text-sm font-semibold text-text-2 transition-colors group-hover:text-brand">
-        Explorar →
+        Explore →
       </div>
     </Link>
   );

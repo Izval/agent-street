@@ -1,6 +1,6 @@
 /**
- * Nav sticky (DESIGN.md §5): logo marca izquierda, "Built on BNB Chain",
- * CTA pill amarillo derecha. El amarillo es escaso y con propósito.
+ * Sticky Nav (DESIGN.md §5): brand logo on the left, "Built on BNB Chain",
+ * yellow CTA pill on the right. Yellow is scarce and purposeful.
  */
 
 import { Link } from "react-router";

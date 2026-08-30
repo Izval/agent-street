@@ -1,9 +1,9 @@
 /**
- * Medidor de score 0–100 (DESIGN.md §6): ≥70 verde · 40–69 marca · <40 rojo.
- * Reusa exactamente los cortes de ivlScoreTone (lib/ivl.ts) — no reinventar la escala.
+ * Score meter 0–100 (DESIGN.md §6): ≥70 green · 40–69 brand · <40 red.
+ * Reuses scoreTone's exact cutoffs (lib/score.ts) — don't reinvent the scale.
  */
 
-import { ivlScoreTone } from "../lib/ivl";
+import { scoreTone } from "../lib/score";
 
 const TONE_TEXT: Record<"up" | "brand" | "down", string> = {
   up: "text-up",
@@ -25,7 +25,7 @@ export function ScoreMeter({
   label?: string;
   size?: "sm" | "md" | "lg";
 }) {
-  const tone = ivlScoreTone(score);
+  const tone = scoreTone(score);
   const pct = Math.max(0, Math.min(100, score));
   const num =
     size === "lg" ? "text-4xl" : size === "sm" ? "text-xl" : "text-2xl";

@@ -1,12 +1,12 @@
 /**
- * TrendingRail — rail de demanda propia (plan §5.5 · DESIGN §24). `.glass-panel`,
- * sticky en desktop. Header: título + tabs (Más vistos / Más contratados) +
- * rango. Lista ordenada (<ol>) de TrendingRow. Estados honestos:
- *   - data === null  → EmptyState ("aún sin suficientes datos de demanda").
- *   - rows vacías    → EmptyState.
- * (El loading skeleton lo dispara el padre pasando data=null + loading; ver
- *  prop `loading`.) Prop-driven: NO llama al cliente de trending.
- * A11y: <ol>, tabs con role, Δ con signo+flecha (en TrendingRow).
+ * TrendingRail — first-party demand rail (plan §5.5 · DESIGN §24). `.glass-panel`,
+ * sticky on desktop. Header: title + tabs (Most viewed / Most hired) +
+ * range. Ordered list (<ol>) of TrendingRow. Honest states:
+ *   - data === null  → EmptyState ("not enough demand data yet").
+ *   - empty rows     → EmptyState.
+ * (The loading skeleton is triggered by the parent passing data=null + loading; see
+ *  the `loading` prop.) Prop-driven: does NOT call the trending client.
+ * A11y: <ol>, tabs with role, Δ with sign+arrow (in TrendingRow).
  */
 
 import type {
@@ -19,8 +19,8 @@ import { SkeletonRow } from "./Skeleton";
 import { TrendingRow } from "./TrendingRow";
 
 const METRIC_TABS: { value: TrendingMetric; label: string }[] = [
-  { value: "views", label: "Más vistos" },
-  { value: "hires", label: "Más contratados" },
+  { value: "views", label: "Most viewed" },
+  { value: "hires", label: "Most hired" },
 ];
 
 const WINDOW_LABEL: Record<TrendingWindow, string> = {
@@ -35,7 +35,7 @@ export interface TrendingRailProps {
   window: TrendingWindow;
   onMetricChange?: (m: TrendingMetric) => void;
   title?: string;
-  /** Fuerza el estado de carga (8 filas shimmer). */
+  /** Forces the loading state (8 shimmer rows). */
   loading?: boolean;
   className?: string;
 }
@@ -53,7 +53,7 @@ export function TrendingRail({
 
   return (
     <aside
-      aria-label={`${title} por demanda`}
+      aria-label={`${title} by demand`}
       className={`glass-panel flex flex-col gap-3 rounded-lg p-3 lg:sticky lg:top-24 ${className}`}
     >
       {/* Header */}
@@ -67,7 +67,7 @@ export function TrendingRail({
 
         <div
           role="tablist"
-          aria-label="Métrica de demanda"
+          aria-label="Demand metric"
           className="glass-hair flex gap-0.5 rounded-[999px] p-0.5"
         >
           {METRIC_TABS.map((t) => {
@@ -93,7 +93,7 @@ export function TrendingRail({
         </div>
       </div>
 
-      {/* Cuerpo */}
+      {/* Body */}
       {loading ? (
         <div className="flex flex-col">
           {Array.from({ length: 8 }).map((_, i) => (
@@ -103,8 +103,8 @@ export function TrendingRail({
       ) : rows.length === 0 ? (
         <EmptyState
           icon="◔"
-          title="Aún sin suficientes datos de demanda"
-          hint="El ranking aparece en cuanto haya vistas y contrataciones que contar en esta ventana."
+          title="Not enough demand data yet"
+          hint="The ranking appears as soon as there are views and hires to count in this window."
         />
       ) : (
         <ol className="flex flex-col">
@@ -118,7 +118,7 @@ export function TrendingRail({
 
       {data != null && rows.length > 0 && (
         <p className="px-2 text-[10px] text-text-3">
-          Demanda propia (vistas + contrataciones) · fuente:{" "}
+          First-party demand (views + hires) · source:{" "}
           <span className="font-medium">{data.source}</span>
         </p>
       )}

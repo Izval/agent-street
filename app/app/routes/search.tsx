@@ -3,7 +3,6 @@ import { Form } from "react-router";
 
 import type { Route } from "./+types/search";
 import { createAgentsClient, type Agent } from "../lib/agents";
-import { FLAGSHIP_ID } from "../lib/seed";
 import { AppShell } from "../components/AppShell";
 import { AgentCard } from "../components/AgentCard";
 
@@ -11,7 +10,7 @@ const LIMIT = 24;
 
 export function meta({ loaderData }: Route.MetaArgs) {
   const q = loaderData?.q;
-  return [{ title: q ? `«${q}» — Agent-Street` : "Buscar — Agent-Street" }];
+  return [{ title: q ? `"${q}" — Agent-Street` : "Search — Agent-Street" }];
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -30,12 +29,12 @@ export default function SearchPage({ loaderData }: Route.ComponentProps) {
     <AppShell>
       <header className="py-2">
         <h1 className="text-3xl font-bold">
-          {q ? <>Resultados para «{q}»</> : "Buscar agentes"}
+          {q ? <>Results for "{q}"</> : "Search agents"}
         </h1>
         {q && (
           <p className="mt-1 text-sm text-text-3">
             {total.toLocaleString("en-US")}{" "}
-            {total === 1 ? "agente" : "agentes"} · datos onchain de 8004scan
+            {total === 1 ? "agent" : "agents"} · onchain data from 8004scan
           </p>
         )}
       </header>
@@ -45,31 +44,31 @@ export default function SearchPage({ loaderData }: Route.ComponentProps) {
           type="search"
           name="q"
           defaultValue={q}
-          placeholder="Buscar agentes en BNB Chain…"
+          placeholder="Search agents on BNB Chain…"
           className="w-full max-w-md rounded-[8px] border border-border bg-surface-2 px-4 py-2 text-sm text-text placeholder:text-text-3 focus:border-brand focus:outline-none"
         />
         <button
           type="submit"
           className="rounded-[8px] border border-border px-4 py-2 text-sm font-semibold text-text transition-colors hover:border-brand"
         >
-          Buscar
+          Search
         </button>
       </Form>
 
       {!q ? (
         <p className="mt-8 rounded-lg border border-border bg-surface p-6 text-sm text-text-3">
-          Escribe un término para buscar agentes por nombre o descripción.
+          Type a term to search agents by name or description.
         </p>
       ) : agents.length ? (
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {agents.map((a: Agent) => (
-            <AgentCard key={a.id} agent={a} featured={a.id === FLAGSHIP_ID} />
+            <AgentCard key={a.id} agent={a} />
           ))}
         </div>
       ) : (
         <p className="mt-8 rounded-lg border border-border bg-surface p-6 text-sm text-text-3">
-          Sin resultados para «{q}». Prueba con otro término o explora por
-          categoría desde la barra lateral.
+          No results for "{q}". Try another term or explore by
+          category from the sidebar.
         </p>
       )}
     </AppShell>

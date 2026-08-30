@@ -1,7 +1,7 @@
 /**
- * CollectionRow — encabezado (título + "Ver todos →") sobre un carril horizontal
- * scrolleable de children (DESIGN.md v2 §11). Firma general: envuelve cualquier
- * card/tile. `accent` subraya el encabezado (acento por aisle, §14) sin fondo.
+ * CollectionRow — header (title + "See all →") over a horizontal scrollable
+ * rail of children (DESIGN.md v2 §11). General signature: wraps any
+ * card/tile. `accent` underlines the header (aisle accent, §14) without a background.
  */
 
 import type { CSSProperties, ReactNode } from "react";
@@ -15,7 +15,7 @@ export function CollectionRow({
 }: {
   title: string;
   seeAllTo?: string;
-  /** Token de acento por aisle, p.ej. `var(--accent-trading)`. */
+  /** Aisle accent token, e.g. `var(--accent-trading)`. */
   accent?: string;
   children: ReactNode;
 }) {
@@ -39,11 +39,11 @@ export function CollectionRow({
             to={seeAllTo}
             className="shrink-0 text-sm font-semibold text-text-2 transition-colors hover:text-brand"
           >
-            Ver todos →
+            See all →
           </Link>
         )}
       </div>
-      {/* Carril horizontal: scroll-snap, sin scrollbar chillón. Cada hijo fija su ancho. */}
+      {/* Horizontal rail: scroll-snap, no loud scrollbar. Each child sets its own width. */}
       <div className="-mx-1 flex snap-x snap-mandatory gap-4 overflow-x-auto px-1 pb-2 [scrollbar-width:thin]">
         {children}
       </div>

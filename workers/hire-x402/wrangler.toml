@@ -1,0 +1,33 @@
+name = "agent-street-hire-x402"
+main = "src/index.ts"
+compatibility_date = "2026-08-17"
+
+# Historial de contrataciones por wallet ("Mis agentes"). En dev local (--local)
+# miniflare simula el KV sin id real. Para PROD crea el namespace y pon el id:
+#   wrangler kv namespace create HIRES_KV   → pega el id devuelto aquí.
+[[kv_namespaces]]
+binding = "HIRES_KV"
+id = "hires_kv_local_placeholder_0000000000"
+preview_id = "hires_kv_local_placeholder_0000000000"
+
+[vars]
+ALLOWED_ORIGIN = "*"
+# RPC público BSC testnet (chainId 97). Keyless; solo lectura (verificación de tx).
+BSC_TESTNET_RPC = "https://data-seed-prebsc-1-s1.bnbchain.org:8545"
+# Token de settlement del marketplace en testnet = USDT (stable, como será en prod).
+# El worker soporta ERC-20 y nativo; para pagar en tBNB pon PAYMENT_TOKEN="native".
+PAYMENT_TOKEN = "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd"
+PAYMENT_TOKEN_SYMBOL = "USDT"
+PAYMENT_TOKEN_DECIMALS = "18"
+# Precio del listing en unidades base: 0.1 USDT (18 dec). Espeja studio.toml (0.1 $U).
+HIRE_PRICE_BASE = "100000000000000000"
+EXPLORER_BASE = "https://testnet.bscscan.com"
+# 8004-proxy para resolver la wallet de cobro del agente (payTo del quote).
+PROXY_8004_URL = "https://agent-street-8004-proxy.zevlat.workers.dev"
+# Flagship IVL Rebalancer: seed curado (no vive en 8004scan). Su wallet de COBRO
+# (dirección pública, no una llave) para habilitarlo como listing pagable de verdad.
+FLAGSHIP_AGENT_ID = "ivl-rebalancer"
+FLAGSHIP_PAYTO = "0x6D19d43fC2cd226B135ED5f9F82b366AC864b703"
+
+# Sin secrets: el usuario firma/paga desde su propia wallet (client-pays). Este
+# worker solo verifica onchain vía RPC público — no custodia claves.

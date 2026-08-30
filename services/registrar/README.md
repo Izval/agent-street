@@ -50,3 +50,16 @@ marketplace se prueba sin gastar tBNB. Verificado con TestClient (health / regis
 
 > ⚠ El treasury debe tener saldo suficiente (≥ ~0.002 tBNB por agente). Las wallets efímeras son
 > throwaway testnet; el dueño real usa su propia wallet al promover a mainnet.
+
+## Deploy en Render (free tier)
+
+Este es el ÚNICO servicio no-Cloudflare. Se despliega con el Blueprint `render.yaml`
+(raíz del repo) + el `Dockerfile` de este directorio.
+
+1. Render dashboard → **New → Blueprint** → conecta este repo. Render lee `render.yaml`,
+   construye el Docker y pide los secrets marcados `sync: false`.
+2. Pega el **`TREASURY_PRIVATE_KEY`** (wallet testnet fondeada) en el prompt. Sin él → **DRY_RUN**.
+3. Al quedar live obtienes `https://agent-street-registrar.onrender.com`. Ponla en
+   `app/wrangler.jsonc` → `REGISTRAR_URL` y **redeploy del app** (Cloudflare).
+4. **Keep-alive:** el free se duerme a los ~15 min (~50s cold start). Añade un ping externo a
+   `/health` cada 10 min (UptimeRobot) para que el primer "Publish" del judging no dé timeout.

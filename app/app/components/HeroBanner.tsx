@@ -1,8 +1,8 @@
 /**
- * HeroBanner — bloque grande superior (DESIGN.md v2 §12).
- * Con `videoSrc`: <video autoplay muted loop playsinline poster> a cubierta +
- * overlay gradiente inferior para legibilidad. Sin video: fallback `.hero-anim`
- * (gradiente marca en deriva). CTA pill amarillo (§5). Pausa con reduced-motion.
+ * HeroBanner — large top block (DESIGN.md v2 §12).
+ * With `videoSrc`: a full-cover <video autoplay muted loop playsinline poster> +
+ * a bottom gradient overlay for legibility. Without video: `.hero-anim` fallback
+ * (drifting brand gradient). Yellow pill CTA (§5). Pauses with reduced-motion.
  */
 
 import { useEffect, useRef } from "react";
@@ -25,7 +25,7 @@ export function HeroBanner({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // reduced-motion: pausar el vídeo (SSR-safe: solo corre en cliente).
+  // reduced-motion: pause the video (SSR-safe: only runs on the client).
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
@@ -55,7 +55,7 @@ export function HeroBanner({
           >
             <source src={videoSrc} />
           </video>
-          {/* Overlay inferior para legibilidad del texto sobre vídeo. */}
+          {/* Bottom overlay for text legibility over video. */}
           <div
             aria-hidden
             className="absolute inset-0 -z-10"

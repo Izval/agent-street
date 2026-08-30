@@ -8,5 +8,9 @@ export default [
   route("skills", "routes/skills.tsx"),
   route("skill/:id", "routes/skill.tsx"),
   route("hire", "routes/hire.tsx"),
+  route("create", "routes/create.tsx"),
+  route("me", "routes/me.tsx"),
+  route("saved", "routes/saved.tsx"),
   route("search", "routes/search.tsx"),
+  route("for-agents", "routes/for-agents.tsx"),
 ] satisfies RouteConfig;

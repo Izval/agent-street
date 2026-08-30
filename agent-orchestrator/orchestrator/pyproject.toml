@@ -1,0 +1,9 @@
+# Orchestrator workspace — NOT a pip/uv-installable package (mirrors agent-ivl).
+# The buyer agent lives under app/agent. To run it locally:
+#
+#   python -m venv app/agent/.venv
+#   app/agent/.venv/bin/pip install -e ./app/agent
+#   app/agent/.venv/bin/python app/agent/orchestrate.py --category rebalancing
+#
+# Wallet (for --execute): unlock a local keystore via the SDK and set WALLET_PASSWORD;
+# the address must hold BSC testnet USDT (settlement token) + a little tBNB for gas.

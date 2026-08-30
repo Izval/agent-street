@@ -1,11 +1,11 @@
 /**
- * Cliente del Worker indexer onchain (workers/onchain-indexer) — datos REALES
- * del `agent_wallet` en BSC. Consume las formas de `contracts.ts`.
+ * Onchain indexer Worker client (workers/onchain-indexer) — REAL data from the
+ * `agent_wallet` on BSC. Consumes the shapes from `contracts.ts`.
  *
- * Honestidad (DESIGN.md v2 §18): portfolio (balances×precio), allocation y trades
- * son dato onchain real. Las métricas derivadas que requieren histórico de NAV
- * (PnL, drawdown, win-rate, equity curve) quedan `null` en v1 y se rotulan
- * "since indexed" — nunca se inventan ni se presentan como exactas.
+ * Honesty (DESIGN.md v2 §18): portfolio (balances×price), allocation and trades
+ * are real onchain data. Derived metrics that require NAV history (PnL, drawdown,
+ * win-rate, equity curve) stay `null` in v1 and are labeled "since indexed" —
+ * they are never invented nor presented as exact.
  */
 
 import type {
@@ -28,13 +28,13 @@ export function createOnchainClient(opts: { baseUrl: string; signal?: AbortSigna
   const base = opts.baseUrl.replace(/\/$/, "");
   return {
     baseUrl: base,
-    /** Portfolio real (balances + allocation + valor). null si el indexer no responde. */
+    /** Real portfolio (balances + allocation + value). null if the indexer doesn't respond. */
     portfolio: (address: string) =>
       getJson<PortfolioResponse>(
         `${base}/v1/portfolio/${encodeURIComponent(address)}`,
         opts.signal,
       ),
-    /** Swaps recientes onchain. null si el indexer no responde. */
+    /** Recent onchain swaps. null if the indexer doesn't respond. */
     trades: (address: string) =>
       getJson<TradesResponse>(
         `${base}/v1/trades/${encodeURIComponent(address)}`,
@@ -46,9 +46,9 @@ export function createOnchainClient(opts: { baseUrl: string; signal?: AbortSigna
 export type OnchainClient = ReturnType<typeof createOnchainClient>;
 
 /**
- * Métricas del portfolio (best-effort, etiquetadas). En v1 solo `totalUsd` y
- * `tradeCount` son reales; el resto requiere histórico de NAV → `null` +
- * `since` (la UI muestra "—" / "since indexed", sin fabricar cifras).
+ * Portfolio metrics (best-effort, labeled). In v1 only `totalUsd` and
+ * `tradeCount` are real; the rest requires NAV history → `null` +
+ * `since` (the UI shows "—" / "since indexed", without fabricating figures).
  */
 export function deriveMetrics(
   portfolio: PortfolioResponse | null,

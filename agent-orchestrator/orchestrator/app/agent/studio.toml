@@ -1,0 +1,27 @@
+[project]
+name = "agent-street-orchestrator"
+
+[stack]
+# Buyer-side agent. It runs LLM-free by default (deterministic journey), like the
+# agent-ivl seller. framework/runtime kept for parity if it is ever deployed as a
+# listed A2A orchestrator.
+framework = "adk"
+runtime = "agentcore"
+protocol = "A2A"
+
+[network]
+default = "bsc-testnet"
+
+[wallet]
+# Local keystore signer. This wallet is the PAYER: it signs and broadcasts the
+# x402 payment (client-pays). The marketplace never holds this key.
+kind = "evm-local"
+signer = "local"
+keystore_dir = "../../.studio/wallets"
+# address = "0x..."   # filled by `bag wallet new`
+
+[marketplace]
+# The Agent-Street MCP server this orchestrator drives.
+mcp_url = "https://agent-street-mcp.zevlat.workers.dev/mcp"
+# BSC testnet RPC used to broadcast the payment transfer (keyless, chainId 97).
+rpc_url = "https://data-seed-prebsc-1-s1.bnbchain.org:8545"

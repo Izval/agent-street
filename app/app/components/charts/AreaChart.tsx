@@ -1,8 +1,8 @@
 /**
  * AreaChart — equity curve (DESIGN.md v2 §15, §17).
- * SVG puro: relleno con gradiente sutil (~14%) + línea 2px (non-scaling-stroke),
- * baseline implícita, crosshair + tooltip en hover. Texto siempre con tokens de
- * texto (nunca color de serie). Dark-first; SSR-safe (sin window en render).
+ * Pure SVG: subtle gradient fill (~14%) + 2px line (non-scaling-stroke),
+ * implicit baseline, crosshair + tooltip on hover. Text always uses text
+ * tokens (never a series color). Dark-first; SSR-safe (no window in render).
  */
 
 import { useId, useState } from "react";
@@ -50,7 +50,7 @@ export function AreaChart({ points, tone = "brand", height = 160 }: AreaChartPro
         className="flex items-center justify-center rounded-[8px] border border-border bg-surface text-xs text-text-3"
         style={{ height }}
       >
-        Sin datos de equity todavía
+        No equity data yet
       </div>
     );
   }
@@ -82,7 +82,7 @@ export function AreaChart({ points, tone = "brand", height = 160 }: AreaChartPro
         height="100%"
         preserveAspectRatio="none"
         role="img"
-        aria-label={`Equity curve, ${n} puntos, de ${fmtValue(values[0])} a ${fmtValue(values[last])}`}
+        aria-label={`Equity curve, ${n} points, from ${fmtValue(values[0])} to ${fmtValue(values[last])}`}
         style={{ display: "block", overflow: "visible" }}
         onPointerMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();

@@ -162,25 +162,132 @@ def _dry_run_mint(w3: Web3, plan: pv3.MintPlan, recipient: str) -> dict[str, Any
     return out
 
 
-def execute_rebalance(pair: str = "BNB-USDT", *, config=pv3.DEFAULT_TESTNET_CONFIG) -> dict[str, Any]:
-    """FIRMA y broadcastea el rebalanceo (approve + mint). CÓDIGO FIJO, no un tool LLM.
+def _ensure_approvals(w3, wallet, owner, plan: pv3.MintPlan) -> list[dict[str, Any]]:
+    """Aprueba token0/token1 al NPM si el allowance no cubre el depósito. Devuelve las txs."""
+    npm = plan.config.position_manager
+    out: list[dict[str, Any]] = []
+    for token, amount, sym in (
+        (plan.token0, plan.amount0_desired, "token0"),
+        (plan.token1, plan.amount1_desired, "token1"),
+    ):
+        if amount <= 0:
+            continue
+        allowance = _erc20(w3, token).functions.allowance(
+            Web3.to_checksum_address(owner), Web3.to_checksum_address(npm)
+        ).call()
+        if allowance >= amount:
+            continue
+        data = pv3.encode_approve_calldata(w3, token, npm, amount)
+        tx = pv3.build_tx(w3, plan.config, owner, token, data, gas_hint="approve")
+        tx_hash = pv3.send_tx(w3, wallet, tx)
+        out.append({"which": sym, "token": token, "tx_hash": tx_hash})
+    return out
 
-    Gated por credenciales: requiere ``WALLET_PASSWORD`` + keystore (``bag wallet new``)
-    y tBNB en la wallet. Usa ``get_wallet().sign_transaction`` (el agente = único firmante).
-    No se ejecuta en la verificación local; documentado para la fase con credenciales.
+
+def _withdraw_position(w3, wallet, owner, plan: pv3.MintPlan, pos: pv3.ExistingPosition, *, burn: bool) -> dict[str, Any]:
+    """decrease(liquidity) → collect(todo) → [burn]. Deja el capital en la wallet para re-mint."""
+    deadline = int(time.time()) + 1200
+    steps: dict[str, Any] = {"token_id": pos.token_id}
+    dec_data = pv3.encode_decrease_calldata(w3, plan.config, pos.token_id, pos.liquidity, deadline)
+    steps["decrease_tx"] = pv3.send_tx(
+        w3, wallet, pv3.build_tx(w3, plan.config, owner, plan.config.position_manager, dec_data, gas_hint="decrease")
+    )
+    col_data = pv3.encode_collect_calldata(w3, plan.config, pos.token_id, owner)
+    steps["collect_tx"] = pv3.send_tx(
+        w3, wallet, pv3.build_tx(w3, plan.config, owner, plan.config.position_manager, col_data, gas_hint="collect")
+    )
+    if burn:
+        burn_data = pv3.encode_burn_calldata(w3, plan.config, pos.token_id)
+        steps["burn_tx"] = pv3.send_tx(
+            w3, wallet, pv3.build_tx(w3, plan.config, owner, plan.config.position_manager, burn_data, gas_hint="burn")
+        )
+    return steps
+
+
+def execute_rebalance(
+    pair: str = "BNB-USDT",
+    *,
+    config: pv3.RebalancerConfig = pv3.DEFAULT_TESTNET_CONFIG,
+    cap_base_human: float = 0.02,
+    cap_quote_human: float | None = None,
+) -> dict[str, Any]:
+    """FIRMA y broadcastea el rebalanceo. CÓDIGO FIJO, no un tool LLM.
+
+    Despacha según la acción de IVL:
+      - ``open_or_hold`` → **mint**: approve(token0/token1 si falta) → mint del rango.
+      - ``withdraw_or_widen`` → **rewiden**: si hay posición, decrease+collect; luego mint más ancho.
+      - ``reset`` → **reset**: decrease+collect+**burn** de la vieja; luego mint centrado.
+
+    Gated por credenciales: requiere ``WALLET_PASSWORD`` + keystore (``bag wallet new``) y
+    saldo de WBNB/USDT (tBNB envuelto) en la wallet. El agente es el ÚNICO firmante
+    (``get_wallet().sign_transaction``). Devuelve los tx hashes de cada paso + el tokenId nuevo.
     """
     from bnbagent_studio_core.wallet import get_wallet  # import perezoso: exige entorno de wallet
 
+    config = config.checksummed()
     wallet = get_wallet()
-    w3 = pv3.connect(config.checksummed())
-    plan_report = plan_rebalance(pair, recipient=wallet.address, config=config, do_dry_run=False)
-    # NOTA: la construcción/broadcast completa (approve→mint, nonce, gas, decrease/burn
-    # para rewiden/reset) se implementa al desbloquear credenciales. Aquí dejamos el
-    # punto de firma explícito para no simular capacidades que aún no probamos onchain.
-    raise NotImplementedError(
-        "execute_rebalance: broadcast real pendiente de wallet fondeada (ver README → handoff). "
-        f"Plan listo para firmar: {json.dumps(plan_report['mint_tx'])}"
+    owner = Web3.to_checksum_address(wallet.address)
+    w3 = pv3.connect(config)
+
+    ticks_resp = fetch_ticks(pair, base_url="https://api.zvlint.com")
+    ivl = ticks_resp.ticks
+    intent = ACTION_INTENT.get(ticks_resp.decision.action, "mint")
+
+    result: dict[str, Any] = {
+        "pair": pair,
+        "owner": owner,
+        "action": ticks_resp.decision.action,
+        "intent": intent,
+        "steps": {},
+    }
+
+    # 1) rewiden/reset: retirar la posición vigente PRIMERO (libera capital a la wallet).
+    if intent in ("rewiden", "reset"):
+        pos = pv3.find_position(w3, config, owner, fee=ivl.fee_units)
+        if pos is not None:
+            # plan temporal solo para tener config/position_manager en los helpers de retiro.
+            tmp_plan = pv3.MintPlan(config=config, pool="", token0=config.base_token,
+                                    token1=config.quote_token, fee=ivl.fee_units,
+                                    tick_lower=0, tick_upper=0, amount0_desired=0, amount1_desired=0)
+            result["steps"]["withdraw"] = _withdraw_position(
+                w3, wallet, owner, tmp_plan, pos, burn=(intent == "reset")
+            )
+        else:
+            result["steps"]["withdraw"] = {"skipped": "sin posición previa → se abre una nueva"}
+
+    # 2) Dimensionar el depósito con el saldo ACTUAL (ya incluye lo retirado arriba).
+    amount_base, amount_quote = pv3.size_amounts(
+        w3, config, ivl, owner, cap_base_human=cap_base_human, cap_quote_human=cap_quote_human
     )
+    if amount_base <= 0 and amount_quote <= 0:
+        raise RuntimeError(
+            "wallet sin saldo de WBNB/USDT para mintear. Fondea con el faucet y envuelve tBNB→WBNB "
+            "(ver README → handoff). El agente no simula: no hay capital que desplegar."
+        )
+
+    # 3) Construir el mint contra el pool real con los ticks orientados de IVL.
+    plan = pv3.build_mint_plan(
+        w3, ivl, recipient=owner, amount_base_wei=amount_base, amount_quote_wei=amount_quote,
+        config=config, deadline=int(time.time()) + 1200,
+    )
+    result["oriented_ticks"] = {
+        "tickLower": plan.tick_lower, "tickUpper": plan.tick_upper, "inverted_vs_ivl": plan.inverted,
+    }
+    result["amounts"] = {"amount0_desired": str(plan.amount0_desired), "amount1_desired": str(plan.amount1_desired)}
+
+    # 4) Approvals + mint.
+    result["steps"]["approvals"] = _ensure_approvals(w3, wallet, owner, plan)
+    mint_data = pv3.encode_mint_calldata(w3, plan)
+    mint_tx = pv3.build_tx(w3, plan.config, owner, plan.config.position_manager, mint_data, gas_hint="mint")
+    signed = wallet.sign_transaction(mint_tx)
+    raw = signed["rawTransaction"] if isinstance(signed, dict) else signed.raw_transaction
+    h = w3.eth.send_raw_transaction(raw)
+    receipt = w3.eth.wait_for_transaction_receipt(h, timeout=180)
+    mint_hash = h.hex() if isinstance(h, bytes) else str(h)
+    result["steps"]["mint_tx"] = mint_hash
+    result["token_id"] = pv3.minted_token_id(receipt, owner)
+    result["explorer"] = f"https://testnet.bscscan.com/tx/{mint_hash}"
+    return result
 
 
 def render_deliverable(report: dict[str, Any]) -> str:
@@ -218,11 +325,20 @@ def ivl_rebalance_plan(pair: str = "BNB-USDT") -> dict[str, Any]:
 
 # --- CLI de verificación local -----------------------------------------------
 def _main() -> None:
-    ap = argparse.ArgumentParser(description="Dry-run del rebalanceo IVL → LP v3 (sin broadcast).")
+    ap = argparse.ArgumentParser(description="Rebalanceo IVL → LP v3 (dry-run por defecto; --execute broadcastea).")
     ap.add_argument("--pair", default="BNB-USDT")
     ap.add_argument("--recipient", default=None, help="address (default: placeholder de solo-encoding)")
     ap.add_argument("--json", action="store_true", help="volcar el reporte JSON completo")
+    ap.add_argument("--execute", action="store_true",
+                    help="FIRMA y broadcastea (requiere wallet fondeada + WALLET_PASSWORD). Gated.")
+    ap.add_argument("--cap-base", type=float, default=0.02, help="tope de BASE (WBNB) a depositar")
     args = ap.parse_args()
+
+    if args.execute:
+        # Broadcast real: gated por credenciales. Nunca simula.
+        result = execute_rebalance(args.pair, cap_base_human=args.cap_base)
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return
 
     report = plan_rebalance(args.pair, recipient=args.recipient)
     if args.json:
