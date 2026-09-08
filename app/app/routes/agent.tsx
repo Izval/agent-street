@@ -174,10 +174,15 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
             {/* The hero fills the viewport below the sticky header (h-16 + h-11
                 = 108px) so the agent's art reads as a full-screen cover; the
                 photo (flex-1) and glass panels stretch to that height. */}
-            <div className="grid items-stretch gap-3 lg:min-h-[calc(100svh-108px)] lg:grid-cols-[minmax(380px,440px)_minmax(0,1fr)_320px] lg:gap-4">
-              <ProfileIdentity detail={detail} meta={meta} />
-              <ProfileAbout detail={detail} meta={meta} />
-              {/* Stretch to the row height so both charts can split it 50/50. */}
+            <div className="grid items-stretch gap-3 lg:min-h-[calc(100svh-108px)] lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-4">
+              {/* Identity photo + description = ONE image-driven surface (no gap,
+                  no seam): a single glass panel where the sharp portrait on the
+                  left melts into its own blur under the description on the right. */}
+              <div className="glass-frost relative grid grid-cols-1 overflow-hidden rounded-br-xl border-l-0 border-t-0 lg:grid-cols-[minmax(380px,440px)_minmax(0,1fr)]">
+                <ProfileIdentity detail={detail} meta={meta} />
+                <ProfileAbout detail={detail} meta={meta} />
+              </div>
+              {/* Charts rail — kept as its own separate panels (unchanged). */}
               <div className="self-stretch pr-4 md:pr-6">
                 <ProfileStats detail={detail} meta={meta} usage={usage} transactions={transactions} />
               </div>

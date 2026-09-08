@@ -4,7 +4,12 @@
  * The agent's own description is the protagonist of the hero now: what you're
  * hiring, in the agent's words, up top and prominent — followed by the "what to
  * hire it for" tagline and a compact real-KPI strip (track record). Everything
- * is real (8004scan / onchain) or an honest "—"; nothing is invented.
+ * is real (8004scan / onchain) or a labeled "—"; nothing is invented.
+ *
+ * It renders transparent so the merged hero panel's own glass-frost + metal-frost
+ * surface (the same brushed-crystal texture as the identity/Hire zone beside it)
+ * shows through uniformly — the two halves read as ONE surface, no seam and no
+ * texture mismatch.
  */
 
 import type { AgentDetail } from "../../lib/contracts";
@@ -57,7 +62,7 @@ export function ProfileAbout({
   ];
 
   return (
-    <div className="glass-frost metal-frost relative flex h-full flex-col overflow-hidden rounded-xl p-6 md:p-7">
+    <div className="metal-frost relative flex h-full flex-col overflow-hidden p-6 md:p-7">
       <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-text-3">About</div>
 
       {/* Description — the protagonist. */}

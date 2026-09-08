@@ -51,7 +51,7 @@ export function ProfileIdentity({
   };
 
   return (
-    <div className="glass-frost metal-frost relative flex h-full flex-col overflow-hidden rounded-r-xl border-l-0">
+    <div className="metal-frost relative flex h-full flex-col overflow-hidden">
       {/* ── The protagonist: big portrait image, edge-to-edge. Fills the row
           height (flex-1) so the photo and the About panel beside it stay the
           same height — one integrated surface, no dead space. A floor keeps it
