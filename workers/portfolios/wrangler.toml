@@ -1,0 +1,38 @@
+# portfolios — Worker de agent portfolios (agent-street).
+# Sets de agentes user-made + contadores de gamificación (first-party) +
+# leaderboard + afinidad "frequently hired together". Proyecto SEPARADO del
+# Pages/app; se despliega con `wrangler deploy` desde este dir.
+#
+# Dev (no choca con analytics :8790 ni hire-x402 :8791):
+#   npx wrangler dev --port 8792 --inspector-port 9342 --local
+name = "agent-street-portfolios"
+main = "src/index.ts"
+compatibility_date = "2026-08-17"
+
+# Store de portfolios + contadores + índices + dedup.
+# Crear el namespace real antes del deploy:
+#   wrangler kv namespace create PORTFOLIOS_KV
+#   wrangler kv namespace create PORTFOLIOS_KV --preview
+# y pegar los ids aquí. Para `wrangler dev --local`, Miniflare simula KV sin ids.
+[[kv_namespaces]]
+binding = "PORTFOLIOS_KV"
+id = "ee685ffba6f34ac3847890f9f061c08a"
+preview_id = "c22d0bde838c40198429e0a397c9c18d"
+
+[vars]
+# CORS: el front (Pages) crea/lee portfolios y postea eventos. Ajustar en prod.
+ALLOWED_ORIGIN = "*"
+# 8004-proxy para enriquecer name/imageUrl/category de los miembros y de la afinidad.
+PROXY_8004_URL = "https://agent-street-8004-proxy.zevlat.workers.dev"
+# hire-x402 para la afinidad co-hire real (GET /v1/cohires). Dev: http://localhost:8791.
+HIRE_X402_URL = "https://agent-street-hire-x402.zevlat.workers.dev"
+
+# Service bindings — composición worker-a-worker en la misma cuenta (un fetch a
+# *.workers.dev haría loopback y 404). En dev local se usan las *_URL de arriba.
+[[services]]
+binding = "PROXY_8004"
+service = "agent-street-8004-proxy"
+
+[[services]]
+binding = "HIRE_X402"
+service = "agent-street-hire-x402"

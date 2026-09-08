@@ -13,7 +13,7 @@
  * doesn't respond, `null` is returned — never an invented price or tx hash.
  */
 
-import type { X402Accept, HireQuote, HireReceipt } from "./contracts";
+import type { X402Accept, HireQuote, HireReceipt, HireTx } from "./contracts";
 
 /** Default symbols for known payment assets on BSC (for the label). */
 const KNOWN_ASSETS: Record<string, { symbol: string; decimals: number }> = {
@@ -98,10 +98,18 @@ export interface HireClientOptions {
   /** Payment execution seam (env.HIRE_X402_URL). */
   payUrl: string;
   signal?: AbortSignal;
+  /** Service binding to the hire-x402 worker for the facilitator/pay calls
+   * (same-account worker-to-worker over *.workers.dev loops back and 404s). The
+   * probe to the agent's own endpoint always uses a plain fetch (external host). */
+  fetcher?: Fetcher;
 }
 
 export function createHireClient(opts: HireClientOptions) {
   const payBase = opts.payUrl.replace(/\/$/, "");
+  // Only the facilitator/pay calls hit our own worker; route those through the binding.
+  const payFetch: typeof fetch = opts.fetcher
+    ? (opts.fetcher.fetch.bind(opts.fetcher) as typeof fetch)
+    : fetch;
 
   /**
    * HTTP 402 probe to the agent's endpoint. Returns the real quote or null if the
@@ -144,7 +152,7 @@ export function createHireClient(opts: HireClientOptions) {
     taskFallback = "Rebalance LP (BNB-USDT)",
   ): Promise<HireQuote | null> {
     try {
-      const res = await fetch(
+      const res = await payFetch(
         `${payBase}/v1/quote?agent=${encodeURIComponent(agentId)}`,
         { method: "GET", headers: { accept: "application/json" }, signal: opts.signal },
       );
@@ -176,9 +184,11 @@ export function createHireClient(opts: HireClientOptions) {
     task: string;
     txHash: string;
     from?: string | null;
+    /** Set when the hire settled under a managed session (manage flow). */
+    sessionId?: string | null;
   }): Promise<HireReceipt | null> {
     try {
-      const res = await fetch(`${payBase}/v1/hire`, {
+      const res = await payFetch(`${payBase}/v1/hire`, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify(input),
@@ -191,7 +201,35 @@ export function createHireClient(opts: HireClientOptions) {
     }
   }
 
-  return { payUrl: payBase, probeQuote, facilitatorQuote, pay };
+  /**
+   * Recent settled hires OF an agent (profile "latest transactions"). Reads the
+   * hire-x402 worker's agent-scoped feed — real tx hashes, no wallets exposed.
+   * Returns [] when there are none and null when the worker is unreachable.
+   */
+  async function recentHires(
+    agentId: string,
+    limit = 12,
+  ): Promise<HireTx[] | null> {
+    try {
+      const url = new URL(`${payBase}/v1/hires`);
+      url.searchParams.set("agent", agentId);
+      url.searchParams.set("limit", String(limit));
+      const res = await payFetch(url.toString(), {
+        method: "GET",
+        headers: { accept: "application/json" },
+        signal: opts.signal,
+      });
+      if (!res.ok) return null;
+      const body = (await res.json().catch(() => null)) as
+        | { hires?: HireTx[] }
+        | null;
+      return Array.isArray(body?.hires) ? body!.hires : [];
+    } catch {
+      return null;
+    }
+  }
+
+  return { payUrl: payBase, probeQuote, facilitatorQuote, pay, recentHires };
 }
 
 export type HireClient = ReturnType<typeof createHireClient>;

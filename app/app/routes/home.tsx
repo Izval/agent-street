@@ -2,29 +2,98 @@ import { env } from "cloudflare:workers";
 
 import type { Route } from "./+types/home";
 import { createAgentsClient, type Agent } from "../lib/agents";
-import { createTrendingClient } from "../lib/trending";
-import type { TrendingResponse } from "../lib/contracts";
+import { createTrendingClient, reputationTrending } from "../lib/trending";
 import {
-  AISLES,
-  REQUIRED_CATEGORIES,
-  categoryLabel,
-  categoriesInAisle,
-  aisleOf,
+  CATEGORIES,
+  REQUIRED_SUBCATEGORIES,
+  subcategoryLabel,
+  subcategoriesInCategory,
+  categoryOf,
   type Category,
+  type Subcategory,
 } from "../lib/taxonomy";
 import { AppShell } from "../components/AppShell";
-import { MarketplaceChrome } from "../components/MarketplaceChrome";
-import { HeroCarousel, type HeroSlide } from "../components/HeroCarousel";
-import { CategoryTile } from "../components/CategoryTile";
+import { CategoryBento } from "../components/CategoryBento";
 import { CollectionCarousel } from "../components/CollectionCarousel";
+import { PortfolioCard } from "../components/PortfolioCard";
+import { PORTFOLIO_RECIPES, resolvePortfolios } from "../lib/portfolios";
 import { TrendingRail } from "../components/TrendingRail";
-import { LiveTicker } from "../components/LiveTicker";
 import { AgentCard } from "../components/AgentCard";
 import { PromoBanner } from "../components/PromoBanner";
 import { FeaturedRail, type FeatureItem } from "../components/FeaturedRail";
 import { LaunchTicker } from "../components/LaunchTicker";
 
 const PER_ROW = 8;
+
+/**
+ * Editorial copy + mosaic placement for the subcategory bento. `place` holds the
+ * asymmetric lg-grid area (a 4-col × 12-row mosaic). The top-left block is the
+ * marketing hero (h1/h2, see `HeroPanel`); Liquidity Providing holds the big
+ * top-right feature (home of IVL); the remaining subcategories + a Skills tile wrap
+ * it. Below lg the tiles stack (1 col) / pair (2 col, wide tiles spanning both).
+ */
+const BENTO: Record<Category, { caption: string; title?: string; place: string }> = {
+  trading: {
+    caption: "Grid, DCA, momentum, signals & perps",
+    place:
+      "min-h-[260px] sm:col-span-2 sm:min-h-[300px] lg:min-h-0 lg:[grid-column:3/5] lg:[grid-row:1/7]",
+  },
+  liquidity: {
+    title: "Liquidity Providing",
+    caption: "Concentrated liquidity & LP rebalancing",
+    place: "min-h-[180px] lg:min-h-0 lg:[grid-column:2] lg:[grid-row:1/4]",
+  },
+  lending: {
+    caption: "Lending, borrowing & health factor",
+    place: "min-h-[180px] lg:min-h-0 lg:[grid-column:2] lg:[grid-row:4/7]",
+  },
+  meme: {
+    caption: "four.meme trading, launches & sniping",
+    place: "min-h-[180px] lg:min-h-0 lg:[grid-column:2] lg:[grid-row:7/10]",
+  },
+  yield: {
+    caption: "Vaults, farms & liquid staking",
+    place: "min-h-[180px] lg:min-h-0 lg:[grid-column:3] lg:[grid-row:7/10]",
+  },
+  rwa: {
+    caption: "Tokenized assets & treasury",
+    place: "min-h-[180px] lg:min-h-0 lg:[grid-column:4] lg:[grid-row:7/10]",
+  },
+  nft: {
+    caption: "Floor sweeps & mints",
+    place:
+      "min-h-[180px] sm:col-span-2 lg:min-h-0 lg:[grid-column:1/3] lg:[grid-row:10/13]",
+  },
+  infra: {
+    caption: "Data, automation, x402, jobs & security",
+    place:
+      "min-h-[180px] sm:col-span-2 lg:min-h-0 lg:[grid-column:3/5] lg:[grid-row:10/13]",
+  },
+};
+
+/** The Skills tile (not an category) — links to the composable-skills index. */
+const SKILLS_BENTO = {
+  title: "Skills",
+  caption: "Composable modules agents plug in",
+  place: "min-h-[180px] lg:min-h-0 lg:[grid-column:1] lg:[grid-row:7/10]",
+};
+
+/**
+ * Order the single explorer beam tours the tiles — a roughly clockwise path so
+ * the light hops between spatial neighbours. Index = when a tile lights up in
+ * the shared loop (see `.bento-beam` in app.css). Length must match `--beam-n`.
+ */
+const BEAM_ORDER = [
+  "liquidity",
+  "trading",
+  "rwa",
+  "infra",
+  "nft",
+  "skills",
+  "meme",
+  "yield",
+  "lending",
+];
 
 export function meta(_: Route.MetaArgs) {
   return [
@@ -38,155 +107,194 @@ export function meta(_: Route.MetaArgs) {
 }
 
 export async function loader() {
-  const agents = createAgentsClient({ baseUrl: env.PROXY_8004_URL });
-  const trendingClient = createTrendingClient({ baseUrl: env.ANALYTICS_URL });
+  const agents = createAgentsClient({ baseUrl: env.PROXY_8004_URL, fetcher: env.PROXY_8004 });
+  const trendingClient = createTrendingClient({ baseUrl: env.ANALYTICS_URL, fetcher: env.ANALYTICS });
 
-  const [total, trending, latestPage, ...pages] = await Promise.all([
-    agents.list({ limit: 1 }).then((p) => p.pagination.total).catch(() => null),
-    trendingClient.trending({ metric: "views", window: "24h", limit: 8 }),
-    agents.list({ limit: 15 }),
-    ...REQUIRED_CATEGORIES.map((c) => agents.list({ category: c, limit: PER_ROW })),
-  ]);
+  const [total, viewsDemand, hiresDemand, pool, portfolios, ...pages] =
+    await Promise.all([
+      agents.list({ limit: 1 }).then((p) => p.pagination.total).catch(() => null),
+      trendingClient.trending({ metric: "views", window: "24h", limit: 8 }),
+      trendingClient.trending({ metric: "hires", window: "24h", limit: 8 }),
+      // A pool of top agents (sorted by score) that feeds the ticker + the base
+      // rankings that keep the Trending tabs populated before demand accumulates.
+      agents.list({ limit: 30 }),
+      // Curated portfolios across the 7 categories (a cross-section, not just the 4 mandatory).
+      resolvePortfolios(PORTFOLIO_RECIPES.slice(0, 6), agents).then((ps) =>
+        ps.filter((p) => p.agents.length > 0),
+      ),
+      ...REQUIRED_SUBCATEGORIES.map((c) => agents.list({ subcategory: c, limit: PER_ROW })),
+    ]);
 
-  const rows = {} as Record<Category, Agent[]>;
-  REQUIRED_CATEGORIES.forEach((c, i) => {
+  const rows = {} as Record<Subcategory, Agent[]>;
+  REQUIRED_SUBCATEGORIES.forEach((c, i) => {
     rows[c] = pages[i].agents;
   });
 
-  // "New launches" ticker (general list as a proxy for what's new).
-  const latest = latestPage.agents.map((a) => ({
+  // "New launches" ticker (top of the pool as a proxy for what's new).
+  const latest = pool.agents.slice(0, 15).map((a) => ({
     id: a.id,
     name: a.name,
-    category: a.categoryLabel,
+    subcategory: a.subcategoryLabel,
     score: a.score,
   }));
 
-  return { rows, total, trending, latest };
+  // Three Trending tabs, all populated with REAL data so none are ever empty:
+  //  - Top:        ranked by on-chain score (8004scan) — always reputation-based.
+  //  - Trending:   first-party views if we have them, else base-ranked by reviews.
+  //  - Most hired: first-party hires if we have them, else base-ranked by stars.
+  const hasRows = (t: typeof viewsDemand) => !!t && t.rows.length > 0;
+  const trendingTabs = {
+    top: reputationTrending(pool.agents, { window: "24h", limit: 8, basis: "score" }),
+    trending: hasRows(viewsDemand)
+      ? viewsDemand!
+      : reputationTrending(pool.agents, { window: "24h", limit: 8, basis: "feedbacks" }),
+    hired: hasRows(hiresDemand)
+      ? hiresDemand!
+      : reputationTrending(pool.agents, { window: "24h", limit: 8, basis: "stars" }),
+  };
+
+  return { rows, total, trendingTabs, latest, portfolios };
 }
 
-function accentFor(c: Category): string | undefined {
-  const a = aisleOf(c);
-  return AISLES.find((x) => x.id === a)?.accent;
+function accentFor(c: Subcategory): string | undefined {
+  const a = categoryOf(c);
+  return CATEGORIES.find((x) => x.id === a)?.accent;
+}
+
+/**
+ * HeroPanel — the marketplace headline, floating (no card/border/background) in
+ * the top-left block of the subcategory mosaic so the value prop lands in the first
+ * screen, no scroll. Just the h1 + subtitle over the page background, lit by a
+ * scarce BNB-yellow glow spilling from the top-left corner.
+ */
+function HeroPanel({ className = "" }: { className?: string }) {
+  return (
+    <section
+      aria-label="Agent-Street marketplace"
+      className={"relative isolate flex flex-col justify-center " + className}
+    >
+      {/* Scarce BNB-yellow glow, spilling from the top-left corner. */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -left-24 -top-28 -z-10 h-80 w-80"
+        style={{
+          background:
+            "radial-gradient(circle at 50% 50%, rgba(240,185,11,0.20), rgba(240,185,11,0.06) 45%, transparent 70%)",
+          filter: "blur(6px)",
+        }}
+      />
+      <div className="max-w-[24rem]">
+        <h1 className="text-3xl font-bold leading-[1.05] tracking-tight text-[var(--text)] sm:text-4xl">
+          Agents that put your capital to work onchain.
+        </h1>
+        <p className="mt-5 text-sm leading-relaxed text-[var(--text-2)] sm:text-base">
+          Hire ERC-8004 agents and composable skills on BNB Chain.
+        </p>
+      </div>
+    </section>
+  );
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { rows, total, trending, latest } = loaderData;
-
-  const slides: HeroSlide[] = [
-    {
-      eyebrow: "Marketplace",
-      title: "Agents that put your capital to work onchain.",
-      subtitle:
-        "Hire ERC-8004 agents and composable skills on BNB Chain — with reputation and portfolio verified on the chain.",
-      ctaTo: "/aisle/defi",
-      // Real photo (Unsplash) to verify the dynamic ambient blur.
-      imageSrc:
-        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1600&q=80",
-      accent: "var(--accent-defi)",
-    },
-    {
-      eyebrow: "Category",
-      title: "Grid, Yield, Rebalancing and Health Factor.",
-      subtitle:
-        "Four categories with real onchain data and equal-depth treatment.",
-      ctaTo: "/category/grid",
-      // Background video (YouTube). Placeholder "for now" — replace with the real ID.
-      youtubeId: "aqz-KE-bpKQ",
-      accent: "var(--accent-trading)",
-    },
-  ];
+  const { rows, total, trendingTabs, latest, portfolios } = loaderData;
 
   // Featured (placeholder "for now"): Steam-style banners.
   const featured: FeatureItem[] = [
     {
       id: "grid",
-      to: "/category/grid",
+      to: "/subcategory/grid",
       title: "Grid Trading",
       subtitle: "Automatic bands in sideways ranges",
-      pill: "Category",
+      pill: "Subcategory",
       accent: "var(--accent-trading)",
       cover: "feat-grid",
     },
     {
       id: "yield",
-      to: "/category/yield",
+      to: "/subcategory/yield",
       title: "Yield Optimization",
       subtitle: "APY compared across protocols",
-      pill: "Category",
-      accent: "var(--accent-defi)",
+      pill: "Subcategory",
+      accent: "var(--accent-yield)",
       cover: "feat-yield",
     },
     {
       id: "health",
-      to: "/category/health",
+      to: "/subcategory/health",
       title: "Health Factor",
       subtitle: "Watch liquidations in real time",
-      pill: "Category",
-      accent: "var(--accent-defi)",
+      pill: "Subcategory",
+      accent: "var(--accent-lending)",
       cover: "feat-health",
     },
     {
       id: "x402",
-      to: "/aisle/payments",
+      to: "/subcategory/payments-x402",
       title: "x402 Payments",
       subtitle: "Micropayments between agents",
       pill: "New",
-      accent: "var(--accent-payments)",
+      accent: "var(--accent-infra)",
       cover: "feat-x402",
     },
     {
-      id: "social",
-      to: "/aisle/social",
-      title: "Signals & Narratives",
-      subtitle: "Onchain sentiment and trends",
+      id: "meme",
+      to: "/category/meme",
+      title: "Meme",
+      subtitle: "four.meme trading and launches",
       pill: "Explore",
-      accent: "var(--accent-social)",
-      cover: "feat-social",
+      accent: "var(--accent-meme)",
+      cover: "feat-meme",
     },
   ];
 
   return (
-    <AppShell ticker={<LaunchTicker items={latest} />}>
-      {/* Full-width "Discover" hero, at the very top. */}
-      <HeroCarousel slides={slides} />
-
-      {/* Category zone: highly visual bentos. */}
+    <AppShell ticker={<LaunchTicker items={latest} />} agentCount={total} network="BSC">
+      {/* Hero + subcategory mosaic: the value prop sits in the top-left block and
+          the 7 categories wrap it — context and a click-path into the tools in the
+          first screen, no scroll needed. */}
       <section className="mt-8">
-        <h2 className="mb-4 text-lg font-bold">Explore by category</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {AISLES.map((aisle) => {
-            const cats = categoriesInAisle(aisle.id);
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 lg:grid-rows-[repeat(12,minmax(0,1fr))] lg:h-[calc(128vh_-_11rem)] lg:max-h-[1040px] lg:min-h-[640px]">
+          <HeroPanel className="py-2 sm:col-span-2 lg:py-0 lg:[grid-column:1] lg:[grid-row:1/7]" />
+          {CATEGORIES.map((category) => {
+            const cats = subcategoriesInCategory(category.id);
+            const b = BENTO[category.id];
             return (
-              <CategoryTile
-                key={aisle.id}
-                to={`/aisle/${aisle.id}`}
-                label={aisle.label}
-                glyph={aisle.glyph}
+              <CategoryBento
+                key={category.id}
+                to={`/category/${category.id}`}
+                label={b.title ?? category.label}
+                caption={b.caption}
+                image={`/img/bento/${category.id}.avif`}
+                category={category.id}
+                accent={category.accent}
                 count={cats.length}
-                subtypes={cats.map((c) => c.label)}
-                accent={aisle.accent}
-                aisleId={aisle.id}
-                featured={aisle.id === "defi"}
+                featured={category.id === "trading"}
+                beamIndex={BEAM_ORDER.indexOf(category.id)}
+                className={b.place}
               />
             );
           })}
+          <CategoryBento
+            to="/skills"
+            label={SKILLS_BENTO.title}
+            caption={SKILLS_BENTO.caption}
+            image="/img/bento/skills.avif"
+            accent="var(--brand)"
+            beamIndex={BEAM_ORDER.indexOf("skills")}
+            className={SKILLS_BENTO.place}
+          />
         </div>
       </section>
 
-      {/* Filters (moved below the categories). */}
-      <div className="mt-8">
-        <MarketplaceChrome />
-      </div>
-
       {/* Featured banner + Steam-style featured row. */}
-      <div className="mt-6">
+      <div className="mt-16">
         <PromoBanner
-          to="/aisle/defi"
-          title="DeFi agents that manage your capital onchain"
-          subtitle="Rebalancing, yield and health — hire ERC-8004 agents with reputation and portfolio verified on the chain."
+          to="/category/liquidity"
+          title="Liquidity agents that manage your capital onchain"
+          subtitle="Concentrated liquidity, rebalancing and LP management — hire ERC-8004 agents with reputation and portfolio verified on the chain."
           pill="Featured"
-          accent="var(--accent-defi)"
-          cover="promo-defi"
+          accent="var(--accent-liquidity)"
+          cover="promo-liquidity"
         />
       </div>
 
@@ -198,14 +306,29 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         />
       </div>
 
+      {/* Agent portfolios — curated sets, "frequently hired together". */}
+      {portfolios.length > 0 && (
+        <div className="mt-10">
+          <CollectionCarousel
+            title="Agent portfolios"
+            seeAllTo="/portfolios"
+            accent="var(--brand)"
+          >
+            {portfolios.map((p) => (
+              <PortfolioCard key={p.slug} portfolio={p} />
+            ))}
+          </CollectionCarousel>
+        </div>
+      )}
+
       {/* Listings + trending rail (below the hero) */}
       <div className="mt-10 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0">
-          {REQUIRED_CATEGORIES.map((c) => (
+          {REQUIRED_SUBCATEGORIES.map((c) => (
             <div className="mb-8" key={c}>
               <CollectionCarousel
-                title={categoryLabel(c)}
-                seeAllTo={`/category/${c}`}
+                title={subcategoryLabel(c)}
+                seeAllTo={`/subcategory/${c}`}
                 accent={accentFor(c)}
               >
                 {rows[c].map((a) => (
@@ -217,15 +340,13 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         </div>
 
         <TrendingRail
-          data={trending as TrendingResponse | null}
-          metric="views"
-          window="24h"
           title="Trending"
+          tabs={[
+            { key: "top", label: "Top", data: trendingTabs.top },
+            { key: "trending", label: "Trending", data: trendingTabs.trending },
+            { key: "hired", label: "Most hired", data: trendingTabs.hired },
+          ]}
         />
-      </div>
-
-      <div className="mt-10">
-        <LiveTicker agentCount={total} indexing />
       </div>
     </AppShell>
   );

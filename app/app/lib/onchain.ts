@@ -14,9 +14,13 @@ import type {
   PortfolioMetrics,
 } from "./contracts";
 
-async function getJson<T>(url: string, signal?: AbortSignal): Promise<T | null> {
+async function getJson<T>(
+  doFetch: typeof fetch,
+  url: string,
+  signal?: AbortSignal,
+): Promise<T | null> {
   try {
-    const res = await fetch(url, { signal, headers: { accept: "application/json" } });
+    const res = await doFetch(url, { signal, headers: { accept: "application/json" } });
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {
@@ -24,19 +28,30 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T | null> 
   }
 }
 
-export function createOnchainClient(opts: { baseUrl: string; signal?: AbortSignal }) {
+export function createOnchainClient(opts: {
+  baseUrl: string;
+  signal?: AbortSignal;
+  /** Service binding to the onchain-indexer worker (same-account worker-to-worker
+   * over *.workers.dev loops back and 404s; falls back to fetch in local dev). */
+  fetcher?: Fetcher;
+}) {
   const base = opts.baseUrl.replace(/\/$/, "");
+  const doFetch: typeof fetch = opts.fetcher
+    ? (opts.fetcher.fetch.bind(opts.fetcher) as typeof fetch)
+    : fetch;
   return {
     baseUrl: base,
     /** Real portfolio (balances + allocation + value). null if the indexer doesn't respond. */
     portfolio: (address: string) =>
       getJson<PortfolioResponse>(
+        doFetch,
         `${base}/v1/portfolio/${encodeURIComponent(address)}`,
         opts.signal,
       ),
     /** Recent onchain swaps. null if the indexer doesn't respond. */
     trades: (address: string) =>
       getJson<TradesResponse>(
+        doFetch,
         `${base}/v1/trades/${encodeURIComponent(address)}`,
         opts.signal,
       ),

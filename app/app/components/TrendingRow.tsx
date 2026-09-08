@@ -6,13 +6,23 @@
  */
 
 import { Link } from "react-router";
-import type { TrendingMetric, TrendingRow as TrendingRowData } from "../lib/contracts";
+import type {
+  TrendingMetric,
+  TrendingResponse,
+  TrendingRow as TrendingRowData,
+} from "../lib/contracts";
+import { Avatar } from "./Avatar";
+import { agentHref } from "../lib/agents";
 import { Sparkline } from "./charts/Sparkline";
 
 export interface TrendingRowProps {
   rank: number;
   row: TrendingRowData;
   metric: TrendingMetric;
+  /** "demand" shows the sparkline + Δ; "reputation" shows the on-chain metric. */
+  source?: TrendingResponse["source"];
+  /** For "reputation" rows: the on-chain metric label (e.g. "on-chain score", "reviews"). */
+  basisLabel?: string;
 }
 
 const fmtCount = (v: number) =>
@@ -40,55 +50,59 @@ function DeltaBadge({ deltaPct }: { deltaPct: number | null }) {
   );
 }
 
-export function TrendingRow({ rank, row, metric }: TrendingRowProps) {
-  const initial = row.name.trim().charAt(0).toUpperCase() || "?";
+export function TrendingRow({
+  rank,
+  row,
+  metric,
+  source = "demand",
+  basisLabel,
+}: TrendingRowProps) {
+  const reputation = source === "reputation";
   const metricNoun = metric === "hires" ? "hires" : "views";
   const sparkTone = row.deltaPct == null ? "brand" : row.deltaPct >= 0 ? "up" : "down";
 
   return (
     <Link
-      to={`/agent/${row.agentId}`}
+      to={agentHref({ id: row.agentId, name: row.name })}
       className="group flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-surface-2"
     >
       <span className="tnum w-5 shrink-0 text-right text-xs font-semibold text-text-3">
         {rank}
       </span>
 
-      {row.imageUrl ? (
-        <img
-          src={row.imageUrl}
-          alt=""
-          className="h-7 w-7 shrink-0 rounded-full object-cover"
-          loading="lazy"
-        />
-      ) : (
-        <span
-          aria-hidden
-          className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-surface-2 text-xs font-semibold text-text-2"
-        >
-          {initial}
-        </span>
-      )}
+      <Avatar src={row.imageUrl} name={row.name} seed={row.agentId} />
 
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="flex items-center gap-1 truncate text-sm font-medium text-text">
           <span className="truncate">{row.name}</span>
-          <span className="text-focus" aria-label="Verified" title="Verified">
-            ✓
-          </span>
+          {row.verified && (
+            <span className="text-focus" aria-label="Verified" title="Verified">
+              ✓
+            </span>
+          )}
         </span>
         <span className="tnum text-[11px] text-text-3">
-          {fmtCount(row.count)} {metricNoun}
+          {reputation
+            ? (basisLabel ?? "on-chain score")
+            : `${fmtCount(row.count)} ${metricNoun}`}
         </span>
       </span>
 
-      <span className="hidden shrink-0 sm:block">
-        <Sparkline values={row.spark} tone={sparkTone} width={64} height={22} />
-      </span>
+      {reputation ? (
+        <span className="tnum shrink-0 rounded-[999px] bg-surface-2 px-2 py-0.5 text-xs font-semibold text-text-2">
+          {row.count}
+        </span>
+      ) : (
+        <>
+          <span className="hidden shrink-0 sm:block">
+            <Sparkline values={row.spark} tone={sparkTone} width={64} height={22} />
+          </span>
 
-      <span className="w-16 shrink-0 text-right">
-        <DeltaBadge deltaPct={row.deltaPct} />
-      </span>
+          <span className="w-16 shrink-0 text-right">
+            <DeltaBadge deltaPct={row.deltaPct} />
+          </span>
+        </>
+      )}
 
       <span
         aria-hidden

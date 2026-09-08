@@ -2,7 +2,7 @@
  * cover.ts — abstract cover art, deterministic and network-free (DESIGN.md v3).
  *
  * Generates backgrounds (a mesh of radial-gradients + dark BNB base) from a `seed`
- * and an aisle `accent`. Replaces stock images "for now": zero files, zero fetch,
+ * and an category `accent`. Replaces stock images "for now": zero files, zero fetch,
  * on-brand (scarce yellow, dark-first). Swappable in the future for real
  * photos/illustrations without touching the components that consume it.
  *
@@ -11,7 +11,7 @@
  */
 
 import type { CSSProperties } from "react";
-import { AISLES, aisleOf, type Aisle, type Category } from "./taxonomy";
+import { CATEGORIES, categoryOf, type Category, type Subcategory } from "./taxonomy";
 
 const BASE = "#0b0e11";
 
@@ -37,14 +37,14 @@ function rng(seed: number) {
   };
 }
 
-/** Accent (CSS token) of the aisle. */
-export function accentForAisle(aisle: Aisle | null | undefined): string {
-  return AISLES.find((a) => a.id === aisle)?.accent ?? "var(--brand)";
+/** Accent (CSS token) of the category. */
+export function accentForCategory(category: Category | null | undefined): string {
+  return CATEGORIES.find((a) => a.id === category)?.accent ?? "var(--brand)";
 }
 
-/** Accent derived from a category (via its aisle). */
-export function accentForCategory(cat: Category | null | undefined): string {
-  return accentForAisle(cat ? aisleOf(cat) : null);
+/** Accent derived from a subcategory (via its category). */
+export function accentForSubcategory(cat: Subcategory | null | undefined): string {
+  return accentForCategory(cat ? categoryOf(cat) : null);
 }
 
 /**

@@ -1,7 +1,7 @@
 /**
  * SearchCommand — ⌘K command overlay (plan §5.10). Presentational +
  * keyboard navigation: results are injected by the parent (agents/
- * categories/skills); the component only displays and navigates them. `.glass-frost`
+ * subcategories/skills); the component only displays and navigates them. `.glass-frost`
  * centered, ↑↓ move the selection, ↵ navigates, Esc / click on overlay close.
  * A11y: modal dialog, basic focus-trap, `aria-activedescendant` (focus lives
  * in the input; items are highlighted via active descendant).
@@ -13,6 +13,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
+import { agentHref } from "../lib/agents";
 import type { KeyboardEvent } from "react";
 
 interface FlatItem {
@@ -25,7 +26,7 @@ interface FlatItem {
 
 export interface SearchCommandResults {
   agents: any[];
-  categories: any[];
+  subcategories: any[];
   skills: any[];
 }
 
@@ -50,18 +51,18 @@ function flatten(results?: SearchCommandResults): FlatItem[] {
     out.push({
       key: `agent:${id || out.length}`,
       label: str(a?.name, "Agent"),
-      sub: str(a?.categoryLabel ?? a?.category),
-      to: str(a?.to, id ? `/agent/${id}` : "#"),
+      sub: str(a?.subcategoryLabel ?? a?.subcategory),
+      to: str(a?.to, id ? agentHref({ id, name: str(a?.name, "") }) : "#"),
       group: "Agents",
     });
   }
-  for (const c of results.categories ?? []) {
+  for (const c of results.subcategories ?? []) {
     const id = str(c?.id, "");
     out.push({
       key: `cat:${id || out.length}`,
-      label: str(c?.label ?? c?.name, "Category"),
-      sub: str(c?.aisle),
-      to: str(c?.to, id ? `/category/${id}` : "#"),
+      label: str(c?.label ?? c?.name, "Subcategory"),
+      sub: str(c?.category),
+      to: str(c?.to, id ? `/subcategory/${id}` : "#"),
       group: "Categories",
     });
   }
@@ -189,7 +190,7 @@ export function SearchCommand({
             aria-controls="cmdk-list"
             aria-activedescendant={activeId ? `cmdk-${activeId}` : undefined}
             aria-autocomplete="list"
-            placeholder="Search agents, categories, skills…"
+            placeholder="Search agents, subcategories, skills…"
             value={query}
             onChange={(e) => onQueryChange?.(e.target.value)}
             className="tnum flex-1 bg-transparent text-sm text-text placeholder:text-text-3 outline-none"
@@ -208,7 +209,7 @@ export function SearchCommand({
         >
           {items.length === 0 ? (
             <li className="px-3 py-8 text-center text-sm text-text-3">
-              Type to search agents, categories and skills.
+              Type to search agents, subcategories and skills.
             </li>
           ) : (
             groups.map((g) => (

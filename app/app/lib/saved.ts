@@ -18,8 +18,8 @@ import { useSyncExternalStore } from "react";
 export interface SavedAgent {
   id: string;
   name: string;
-  category: string | null;
-  categoryLabel: string | null;
+  subcategory: string | null;
+  subcategoryLabel: string | null;
   score: number;
   imageUrl?: string;
   source: "8004scan" | "seed";

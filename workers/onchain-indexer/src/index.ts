@@ -9,9 +9,13 @@
 // Patrón reutilizado del Worker 8004-proxy: CORS + KV cache + rate-limit + router por path.
 //
 // Endpoints:
-//   GET /health                 → { ok:true, service:"onchain-indexer" }
-//   GET /v1/portfolio/:address  → PortfolioResponse
-//   GET /v1/trades/:address     → TradesResponse
+//   GET  /health                 → { ok:true, service:"onchain-indexer" }
+//   GET  /v1/portfolio/:address  → PortfolioResponse
+//   GET  /v1/trades/:address     → TradesResponse
+//   POST /v1/summary             → { summaries:[{ address, totalUsd, txCount }] }
+//     Batch lean para el filtro onchain del marketplace (corpus del 8004-proxy).
+//     `txCount` = nonce (eth_getTransactionCount) → tx salientes reales, KEYLESS
+//     (no depende de BSCSCAN_API_KEY). `totalUsd` reusa getPortfolio (cacheado).
 
 import { TOKENS, WBNB_ADDRESS, type TokenMeta } from "./tokens";
 
@@ -71,6 +75,11 @@ interface TradesResponse {
 const PORTFOLIO_CACHE_SEC = 120;
 const TRADES_CACHE_SEC = 180;
 const PRICE_CACHE_SEC = 300;
+const SUMMARY_CACHE_SEC = 600; // resumen (totalUsd + txCount) para el filtro del corpus.
+/** Direcciones que procesa /v1/summary en paralelo por tanda (acota carga al RPC). */
+const SUMMARY_CONCURRENCY = 6;
+/** Tope de direcciones por request a /v1/summary (el cron trocea por encima). */
+const SUMMARY_MAX_ADDRS = 200;
 const RL_LIMIT = 120;
 const RL_WINDOW_SEC = 60;
 
@@ -97,7 +106,7 @@ async function underRateLimit(request: Request): Promise<boolean> {
 function corsHeaders(env: Env): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN || "*",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     Vary: "Origin",
   };
@@ -341,6 +350,69 @@ async function getPortfolio(env: Env, address: string): Promise<PortfolioRespons
 }
 
 // ------------------------------------------------------------------ //
+// Summary — { totalUsd, txCount } lean para el filtro onchain del corpus
+// ------------------------------------------------------------------ //
+
+interface AgentSummary {
+  address: string;
+  totalUsd: number;
+  /** nonce = nº de tx salientes confirmadas. Señal anti-spam KEYLESS (vía RPC). */
+  txCount: number;
+}
+
+/** Resumen de una address: capital en USD (reusa getPortfolio, cacheado) + nonce. */
+async function getSummary(env: Env, address: string): Promise<AgentSummary> {
+  const addr = address.toLowerCase();
+  const cacheKey = `summary:v1:${addr}`;
+  const cached = await env.INDEXER_KV.get(cacheKey, "json");
+  if (cached) return cached as AgentSummary;
+
+  const [pf, nonceRes] = await Promise.all([
+    getPortfolio(env, addr),
+    rpcBatch(env, [{ method: "eth_getTransactionCount", params: [addr, "latest"] }]),
+  ]);
+  const txCount = Number(hexToBigInt(nonceRes[0]));
+  const out: AgentSummary = { address: addr, totalUsd: pf.totalUsd, txCount };
+  await env.INDEXER_KV.put(cacheKey, JSON.stringify(out), {
+    expirationTtl: SUMMARY_CACHE_SEC,
+  });
+  return out;
+}
+
+/** Batch de resúmenes con concurrencia acotada. Direcciones inválidas se ignoran;
+ *  una address que falla degrada a { totalUsd:0, txCount:0 } (no rompe la tanda). */
+async function getSummaries(env: Env, addresses: string[]): Promise<AgentSummary[]> {
+  const uniq = [
+    ...new Set(addresses.map((a) => a.trim().toLowerCase()).filter((a) => ADDR_RE.test(a))),
+  ];
+  const out: AgentSummary[] = [];
+  for (let i = 0; i < uniq.length; i += SUMMARY_CONCURRENCY) {
+    const batch = uniq.slice(i, i + SUMMARY_CONCURRENCY);
+    const res = await Promise.all(
+      batch.map((a) =>
+        getSummary(env, a).catch(() => ({ address: a, totalUsd: 0, txCount: 0 })),
+      ),
+    );
+    out.push(...res);
+  }
+  return out;
+}
+
+async function handleSummary(request: Request, env: Env): Promise<Response> {
+  let body: { addresses?: unknown };
+  try {
+    body = (await request.json()) as { addresses?: unknown };
+  } catch {
+    return json({ error: "invalid_json" }, env, 400);
+  }
+  const addresses = Array.isArray(body.addresses)
+    ? (body.addresses as unknown[]).map(String).slice(0, SUMMARY_MAX_ADDRS)
+    : [];
+  const summaries = await getSummaries(env, addresses);
+  return json({ summaries, chainId: CHAIN_ID, updatedAt: new Date().toISOString() }, env, 200);
+}
+
+// ------------------------------------------------------------------ //
 // Trades — BscScan tokentx (API key opcional)
 // ------------------------------------------------------------------ //
 
@@ -479,15 +551,29 @@ export default {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders(env) });
     }
-    if (request.method !== "GET") {
-      return json({ error: "method_not_allowed" }, env, 405);
-    }
     if (!(await underRateLimit(request))) {
       return json({ error: "rate_limited" }, env, 429);
     }
 
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
+
+    // Único endpoint de escritura: batch de resúmenes para el filtro del corpus.
+    if (request.method === "POST") {
+      try {
+        if (path === "/v1/summary") return await handleSummary(request, env);
+        return json({ error: "not_found" }, env, 404);
+      } catch (err) {
+        return json(
+          { error: "upstream_error", detail: String((err as Error).message) },
+          env,
+          502,
+        );
+      }
+    }
+    if (request.method !== "GET") {
+      return json({ error: "method_not_allowed" }, env, 405);
+    }
 
     try {
       if (path === "/health" || path === "/") {

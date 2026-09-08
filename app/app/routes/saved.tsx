@@ -2,43 +2,39 @@ import { Link } from "react-router";
 
 import type { Route } from "./+types/saved";
 import { useSavedAgents, type SavedAgent } from "../lib/saved";
+import { agentHref } from "../lib/agents";
 import { AppShell } from "../components/AppShell";
+import { Avatar } from "../components/Avatar";
 import { Card } from "../components/Card";
 import { SaveButton } from "../components/SaveButton";
-import { SourceBadge } from "../components/Badge";
 import { ScoreMeter } from "../components/ScoreMeter";
 
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Saved agents — Agent-Street" }];
 }
 
-function initials(name: string) {
-  return name.slice(0, 2).toUpperCase();
-}
-
 function SavedCard({ a }: { a: SavedAgent }) {
   return (
     <Card className="relative flex items-center gap-3 p-4 transition-colors hover:border-brand">
       <Link
-        to={`/agent/${encodeURIComponent(a.id)}`}
+        to={agentHref(a)}
         className="flex min-w-0 flex-1 items-center gap-3"
       >
-        <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-lg bg-surface-2 text-sm font-bold text-text-2">
-          {a.imageUrl ? (
-            <img src={a.imageUrl} alt="" className="h-full w-full object-cover" />
-          ) : (
-            initials(a.name)
-          )}
-        </span>
+        <Avatar
+          src={a.imageUrl}
+          name={a.name}
+          seed={a.id}
+          size="h-11 w-11"
+          rounded="rounded-lg"
+        />
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold text-text">{a.name}</div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-            {a.categoryLabel && (
+            {a.subcategoryLabel && (
               <span className="rounded-[999px] bg-white/[0.06] px-2 py-0.5 text-[11px] font-semibold text-text-2">
-                {a.categoryLabel}
+                {a.subcategoryLabel}
               </span>
             )}
-            <SourceBadge source={a.source} />
           </div>
         </div>
       </Link>

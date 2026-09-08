@@ -1,124 +1,99 @@
 /**
- * Registrar client — the "Create your own agent" publish seam.
+ * Marketplace listing seam for the "Create your own agent" flow.
  *
- * Two server-side hops, both run from the `/create` route action (never the
- * browser), mirroring the factory style of `x402.ts` / `trending.ts`:
- *   1. REGISTER (onchain) → `POST {registrarUrl}/v1/register` mints an ERC-8004
- *      identity on BSC testnet via the BNB Agent Studio SDK seam. A treasury-
- *      funded ephemeral wallet holds the identity (ERC-8004 = 1 identity per
- *      address). Without a treasury key the service replies in DRY_RUN (pending).
- *   2. LIST → `POST {proxyUrl}/v1/submitted` persists the created agent to the
- *      proxy's KV so it shows up in the marketplace with id `t<chain>-<agentId>`.
+ * Since `/create` moved to **client-pays** (the user's wallet mints the ERC-8004
+ * identity on-chain directly — see `erc8004.ts` + the wizard's `publish()`), the
+ * server no longer registers anything. All that remains server-side is LISTING:
+ * persisting the freshly-minted agent to the proxy's KV so it shows up in the
+ * marketplace with id `t<chain>-<agentId>`.
  *
- * Honesty (DESIGN.md v2 §18): if the registrar fails or replies `pending`, we
- * still list the agent as `pending` — never a fabricated agentId or tx hash.
+ * Honesty (DESIGN.md v2 §18): we only ever list what the user actually minted —
+ * the real `agentId` + `txHash` from their own transaction, owned by their own
+ * wallet. No fabricated ids or hashes.
+ *
+ * (The legacy sponsored registrar — `services/registrar/`, treasury-funded — is
+ * kept in the repo as an optional fallback but is no longer on this path.)
  */
 
-import type { Category } from "./taxonomy";
+import type { Subcategory } from "./taxonomy";
 
-/** Fields the wizard collects (maps 1:1 to the registrar `RegisterRequest`). */
+const BSC_TESTNET_CHAIN_ID = 97;
+
+/** Fields the wizard collects. */
 export interface AgentSpec {
   name: string;
   description: string;
-  category: Category | "";
-  /** Optional A2A endpoint; the registrar fills a placeholder when omitted. */
+  subcategory: Subcategory | "";
+  /** Optional A2A endpoint; a placeholder card URL is used when omitted. */
   endpoint?: string;
   /** Transport protocol advertised by the agent card. */
   protocol?: string;
 }
 
-/** Registrar `POST /v1/register` response. */
-export interface RegisterResult {
-  status: "registered" | "pending";
-  mode: "onchain" | "dry_run";
-  agentId: string | null;
+/** Result of the client-side on-chain mint, handed to the listing seam. */
+export interface MintResult {
+  /** ERC-8004 token id parsed from the `Registered` event. */
+  agentId: string;
+  /** The user's `register(...)` transaction hash. */
+  txHash: string;
+  /** Owner of the identity = the connected wallet that signed + paid. */
   ownerAddress: string;
-  txHash: string | null;
-  network: string;
   chainId: number;
-  endpoint: string;
-  detail?: string | null;
 }
 
 /** What the wizard shows on the success step. */
 export interface PublishReceipt {
   /** Marketplace id (`t<chain>-<agentId>`) → links to `/agent/:id`. */
   marketplaceId: string;
-  agentId: string | null;
-  txHash: string | null;
+  agentId: string;
+  txHash: string;
   ownerAddress: string;
-  status: "registered" | "pending";
-  mode: "onchain" | "dry_run";
   chainId: number;
-  endpoint: string;
-  detail?: string | null;
 }
 
-export interface RegistrarClientOptions {
-  /** Registrar service base URL (env.REGISTRAR_URL). */
-  registrarUrl: string;
+export interface ListingClientOptions {
   /** 8004scan proxy base URL (env.PROXY_8004_URL) — where the listing is persisted. */
   proxyUrl: string;
+  /** Same-account service binding (env.PROXY_8004). In prod a plain fetch to the
+   * proxy's *.workers.dev loops back to THIS worker and 404s, so route through the
+   * binding when present; absent in local dev, where the plain fetch works. */
+  fetcher?: Fetcher;
   /** Optional shared secret for the proxy's `POST /v1/submitted` (env.SUBMIT_TOKEN). */
   submitToken?: string;
   signal?: AbortSignal;
 }
 
-const BSC_TESTNET_CHAIN_ID = 97;
-
-export function createRegistrarClient(opts: RegistrarClientOptions) {
-  const registrarBase = opts.registrarUrl.replace(/\/$/, "");
+export function createListingClient(opts: ListingClientOptions) {
   const proxyBase = opts.proxyUrl.replace(/\/$/, "");
+  const doFetch: typeof fetch = opts.fetcher
+    ? (opts.fetcher.fetch.bind(opts.fetcher) as typeof fetch)
+    : fetch;
 
-  /** Mints (or, in DRY_RUN, simulates) an ERC-8004 identity for a new agent. */
-  async function register(spec: AgentSpec): Promise<RegisterResult> {
-    const res = await fetch(`${registrarBase}/v1/register`, {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({
-        name: spec.name,
-        description: spec.description,
-        category: spec.category || "",
-        endpoint: spec.endpoint || undefined,
-        protocol: spec.protocol || "A2A",
-      }),
-      signal: opts.signal,
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`registrar ${res.status}: ${text.slice(0, 200)}`);
-    }
-    return (await res.json()) as RegisterResult;
-  }
-
-  /** Persists the created agent to the marketplace (proxy KV). Returns its id. */
-  async function list(
+  /** Persists a minted agent to the marketplace (proxy KV). Returns its id. */
+  async function listCreatedAgent(
     spec: AgentSpec,
-    reg: RegisterResult,
-    creator: string | null,
+    mint: MintResult,
     x402Supported: boolean,
-  ): Promise<string> {
+  ): Promise<PublishReceipt> {
     const headers: Record<string, string> = {
       "content-type": "application/json",
       accept: "application/json",
     };
     if (opts.submitToken) headers["x-submit-token"] = opts.submitToken;
 
-    const res = await fetch(`${proxyBase}/v1/submitted`, {
+    const res = await doFetch(`${proxyBase}/v1/submitted`, {
       method: "POST",
       headers,
       body: JSON.stringify({
         name: spec.name,
         description: spec.description,
-        category: spec.category || undefined,
-        agentId: reg.agentId ?? undefined,
-        // The connected wallet is recorded as the listing's creator/owner; the
-        // ERC-8004 token itself is held by the registrar's ephemeral wallet.
-        ownerAddress: creator ?? reg.ownerAddress,
-        endpoint: reg.endpoint,
-        txHash: reg.txHash ?? undefined,
-        chainId: reg.chainId ?? BSC_TESTNET_CHAIN_ID,
-        status: reg.status,
+        subcategory: spec.subcategory || undefined,
+        agentId: mint.agentId,
+        ownerAddress: mint.ownerAddress,
+        endpoint: spec.endpoint || undefined,
+        txHash: mint.txHash,
+        chainId: mint.chainId ?? BSC_TESTNET_CHAIN_ID,
+        status: "registered",
         x402Supported,
       }),
       signal: opts.signal,
@@ -129,29 +104,15 @@ export function createRegistrarClient(opts: RegistrarClientOptions) {
     }
     const detail = (await res.json()) as { id?: string };
     if (!detail.id) throw new Error("proxy submit: missing id");
-    return detail.id;
-  }
 
-  /** Full publish: register onchain, then list in the marketplace. */
-  async function publish(
-    spec: AgentSpec,
-    creator: string | null,
-    x402Supported: boolean,
-  ): Promise<PublishReceipt> {
-    const reg = await register(spec);
-    const marketplaceId = await list(spec, reg, creator, x402Supported);
     return {
-      marketplaceId,
-      agentId: reg.agentId,
-      txHash: reg.txHash,
-      ownerAddress: creator ?? reg.ownerAddress,
-      status: reg.status,
-      mode: reg.mode,
-      chainId: reg.chainId ?? BSC_TESTNET_CHAIN_ID,
-      endpoint: reg.endpoint,
-      detail: reg.detail ?? null,
+      marketplaceId: detail.id,
+      agentId: mint.agentId,
+      txHash: mint.txHash,
+      ownerAddress: mint.ownerAddress,
+      chainId: mint.chainId ?? BSC_TESTNET_CHAIN_ID,
     };
   }
 
-  return { register, list, publish };
+  return { listCreatedAgent };
 }

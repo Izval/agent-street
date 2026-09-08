@@ -3,8 +3,6 @@
  * Verde/rojo solo para datos; nunca decorativos.
  */
 
-import type { AgentSource } from "../lib/agents";
-
 export function LiveBadge() {
   return (
     <span className="inline-flex items-center gap-1 text-xs font-semibold text-up">
@@ -36,17 +34,20 @@ export function X402Badge() {
   );
 }
 
-/** Data Quality honesty: live 8004scan vs curated seed. */
-export function SourceBadge({ source }: { source: AgentSource }) {
-  if (source === "8004scan") {
+/** A2A endpoint liveness. Data-colored (green up / muted) — never decorative. */
+export function EndpointBadge({ live }: { live: boolean }) {
+  if (live) {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-text-3">
+      <span className="inline-flex items-center gap-1 rounded-[999px] border border-border px-2 py-0.5 text-xs font-semibold text-up">
         <span className="h-1.5 w-1.5 rounded-full bg-up" aria-hidden />
-        8004scan
+        Endpoint live
       </span>
     );
   }
   return (
-    <span className="text-[11px] font-medium text-text-3">curated</span>
+    <span className="rounded-[999px] border border-border px-2 py-0.5 text-xs font-semibold text-text-3">
+      Endpoint unreachable
+    </span>
   );
 }
+

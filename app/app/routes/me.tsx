@@ -1,11 +1,17 @@
 import { env } from "cloudflare:workers";
 import { useEffect } from "react";
 import { Link, useSearchParams } from "react-router";
+import { agentHref } from "../lib/agents";
 import { useAccount } from "wagmi";
+import { formatUnits } from "viem";
 
 import type { Route } from "./+types/me";
 import { loadMyAgents, type HireRecord, type OwnedAgent } from "../lib/me";
+import { createPortfoliosClient, type UserPortfolio } from "../lib/portfolios-client";
+import { createSessionsClient } from "../lib/sessions-client";
+import type { Session } from "../lib/contracts";
 import { AppShell } from "../components/AppShell";
+import { Avatar } from "../components/Avatar";
 import { Card } from "../components/Card";
 import { WalletButton } from "../components/WalletButton";
 
@@ -16,7 +22,19 @@ export function meta(_: Route.MetaArgs) {
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const address = url.searchParams.get("address");
-  return loadMyAgents({ hireUrl: env.HIRE_X402_URL }, address);
+  const [me, portfolios, sessions] = await Promise.all([
+    loadMyAgents({ hireUrl: env.HIRE_X402_URL, hireFetcher: env.HIRE_X402 }, address),
+    address
+      ? createPortfoliosClient({ baseUrl: env.PORTFOLIOS_URL, fetcher: env.PORTFOLIOS }).list({
+          owner: address,
+          limit: 50,
+        })
+      : Promise.resolve(null),
+    address
+      ? createSessionsClient({ baseUrl: env.HIRE_X402_URL, fetcher: env.HIRE_X402 }).list(address)
+      : Promise.resolve([] as Session[]),
+  ]);
+  return { ...me, portfolios: portfolios ?? [], sessions: sessions ?? [] };
 }
 
 function SectionTitle({ children, count }: { children: React.ReactNode; count?: number }) {
@@ -49,7 +67,7 @@ function HireCard({ h }: { h: HireRecord }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <Link
-            to={`/agent/${encodeURIComponent(h.agentId)}`}
+            to={agentHref({ id: h.agentId, name: h.agentName })}
             className="truncate font-semibold text-text hover:text-brand"
           >
             {h.agentName ?? h.agentId}
@@ -84,16 +102,52 @@ function HireCard({ h }: { h: HireRecord }) {
   );
 }
 
+function SessionRow({ s }: { s: Session }) {
+  const cap = s.spend[0];
+  const capLabel = cap
+    ? `${Number(formatUnits(BigInt(cap.limitBase), cap.decimals ?? 18))} ${cap.symbol ?? ""}/${cap.period}`
+    : "Session";
+  const tone =
+    s.status === "active"
+      ? "border-up/40 text-up"
+      : s.status === "revoked"
+        ? "border-down/40 text-down"
+        : "border-border text-text-3";
+  return (
+    <Link to="/manage" className="block">
+      <Card className="flex items-center gap-3 p-4 transition-colors hover:border-brand">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="tnum truncate font-semibold text-text">{capLabel}</span>
+            <span
+              className={`rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase ${tone}`}
+            >
+              {s.status}
+            </span>
+          </div>
+          <div className="mt-0.5 truncate text-xs text-text-3">
+            {s.remainingAmount != null
+              ? `${s.remainingAmount} ${cap?.symbol ?? ""} remaining · `
+              : ""}
+            {s.allowlist.length === 0 ? "any listing" : `${s.allowlist.length} agent(s)`}
+          </div>
+        </div>
+        <span className="shrink-0 text-text-3">→</span>
+      </Card>
+    </Link>
+  );
+}
+
 function OwnedCard({ a }: { a: OwnedAgent }) {
   const inner = (
     <Card className="flex items-center gap-3 p-4 transition-colors hover:border-brand">
-      <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-surface-2 text-sm font-bold text-text-2">
-        {a.imageUrl ? (
-          <img src={a.imageUrl} alt="" className="h-full w-full object-cover" />
-        ) : (
-          a.name.slice(0, 2).toUpperCase()
-        )}
-      </span>
+      <Avatar
+        src={a.imageUrl}
+        name={a.name}
+        seed={a.id}
+        size="h-10 w-10"
+        rounded="rounded-lg"
+      />
       <div className="min-w-0 flex-1">
         <div className="truncate font-semibold text-text">{a.name}</div>
         <div className="mt-0.5 text-xs text-text-3">
@@ -117,8 +171,27 @@ function OwnedCard({ a }: { a: OwnedAgent }) {
   );
 }
 
+function MyPortfolioCard({ p }: { p: UserPortfolio }) {
+  return (
+    <Link to={`/portfolio/${encodeURIComponent(p.slug)}`} className="block">
+      <Card className="flex items-center gap-3 p-4 transition-colors hover:border-brand">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-surface-2 text-sm font-bold text-text-2">
+          {p.name.slice(0, 2).toUpperCase()}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-semibold text-text">{p.name}</div>
+          <div className="tnum mt-0.5 text-xs text-text-3">
+            {p.members.length} agents · {p.stats.copies} copies · {p.stats.hireAlls} hires
+          </div>
+        </div>
+        <span className="shrink-0 text-text-3">→</span>
+      </Card>
+    </Link>
+  );
+}
+
 export default function Me({ loaderData }: Route.ComponentProps) {
-  const { hires, launchedMainnet, launchedTestnet } = loaderData;
+  const { hires, launchedMainnet, launchedTestnet, portfolios, sessions } = loaderData;
   const { address, isConnected } = useAccount();
   const [searchParams, setSearchParams] = useSearchParams();
   const paramAddr = searchParams.get("address");
@@ -174,6 +247,58 @@ export default function Me({ loaderData }: Route.ComponentProps) {
               <div className="flex flex-col gap-2">
                 {hires.map((h) => (
                   <HireCard key={h.txHash} h={h} />
+                ))}
+              </div>
+            )}
+
+            {/* Managed sessions (manage flow) */}
+            <div className="flex items-center justify-between">
+              <SectionTitle count={sessions.length}>Sessions</SectionTitle>
+              <Link
+                to="/manage"
+                className="mt-8 text-xs font-semibold text-brand transition-colors hover:underline"
+              >
+                Manage →
+              </Link>
+            </div>
+            {sessions.length === 0 ? (
+              <Empty>
+                No managed sessions yet.{" "}
+                <Link to="/manage" className="text-brand hover:underline">
+                  Grant a spend-capped session
+                </Link>{" "}
+                to hire within a cap without signing each time.
+              </Empty>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {sessions.map((s) => (
+                  <SessionRow key={s.id} s={s} />
+                ))}
+              </div>
+            )}
+
+            {/* Portfolios (created by this wallet) */}
+            <div className="flex items-center justify-between">
+              <SectionTitle count={portfolios.length}>Portfolios</SectionTitle>
+              <Link
+                to="/portfolio/new"
+                className="mt-8 text-xs font-semibold text-brand transition-colors hover:underline"
+              >
+                Build one →
+              </Link>
+            </div>
+            {portfolios.length === 0 ? (
+              <Empty>
+                You haven't published any portfolios yet.{" "}
+                <Link to="/portfolio/new" className="text-brand hover:underline">
+                  Build a portfolio
+                </Link>{" "}
+                to bundle agents others can copy or hire.
+              </Empty>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {portfolios.map((p) => (
+                  <MyPortfolioCard key={p.slug} p={p} />
                 ))}
               </div>
             )}

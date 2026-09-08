@@ -11,6 +11,18 @@ ANALYTICS_URL = "https://agent-street-analytics.zevlat.workers.dev"
 INDEXER_URL = "https://agent-street-onchain-indexer.zevlat.workers.dev"
 MCP_SERVER_NAME = "agent-street-mcp"
 
+# Service bindings — same-account worker-to-worker composition. A plain fetch to
+# these workers over *.workers.dev loops back and 404s on the same account, so we
+# route through bindings instead (also faster: no public round-trip). The *_URL vars
+# above are the local-dev fallback path (real external fetch when bindings are absent).
+[[services]]
+binding = "PROXY_8004"
+service = "agent-street-8004-proxy"
+
+[[services]]
+binding = "HIRE_X402"
+service = "agent-street-hire-x402"
+
 # No KV, no secrets: the MCP server is a stateless read-through/relay. It never
 # signs or custodies keys — money is signed by the CLIENT (client-pays) and
 # verified on-chain by hire-x402. Rate-limit uses caches.default, like the others.

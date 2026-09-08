@@ -12,6 +12,7 @@
 //   GET  /health                      → { ok:true, service:"analytics" }
 //   POST /v1/event  { agentId, type } → incrementa contadores (best-effort, 200)
 //   GET  /v1/trending?metric=&window=&category=&limit=  → TrendingResponse EXACTO
+//   GET  /v1/series/:agentId?window=  → SeriesResponse (demand over time, 1 agent)
 //
 // Contrato de salida: ESPEJO de app/app/lib/contracts.ts (TrendingResponse /
 // TrendingRow / TrendingMetric / TrendingWindow). camelCase. Mantener en sync.
@@ -43,6 +44,21 @@ interface TrendingResponse {
   window: TrendingWindow;
   metric: TrendingMetric;
   rows: TrendingRow[];
+  updatedAt: string;
+  source: "demand";
+}
+
+/** Per-agent demand over time (usage chart on the agent profile). One point per
+ *  hourly bucket in the window; views/hires are our own first-party counts. */
+interface SeriesPoint {
+  ts: string; // ISO of the bucket hour (UTC)
+  views: number;
+  hires: number;
+}
+interface SeriesResponse {
+  agentId: string;
+  window: TrendingWindow;
+  points: SeriesPoint[];
   updatedAt: string;
   source: "demand";
 }
@@ -120,6 +136,15 @@ function fmtBucket(ms: number): string {
     p(d.getUTCDate()) +
     p(d.getUTCHours())
   );
+}
+
+/** Inversa de fmtBucket: yyyymmddHH (UTC) → ms del inicio de esa hora. */
+function parseBucket(b: string): number {
+  const y = Number(b.slice(0, 4));
+  const mo = Number(b.slice(4, 6));
+  const d = Number(b.slice(6, 8));
+  const h = Number(b.slice(8, 10));
+  return Date.UTC(y, mo - 1, d, h);
 }
 
 /**
@@ -405,6 +430,57 @@ async function handleTrending(url: URL, env: Env): Promise<Response> {
 }
 
 // ------------------------------------------------------------------ //
+// GET /v1/series/:agentId — demanda de UN agente a lo largo del tiempo
+// ------------------------------------------------------------------ //
+async function handleSeries(agentId: string, url: URL, env: Env): Promise<Response> {
+  const windowRaw = url.searchParams.get("window") as TrendingWindow | null;
+  const window: TrendingWindow =
+    windowRaw && windowRaw in WINDOW_HOURS ? windowRaw : "7d";
+  const hours = WINDOW_HOURS[window];
+  const now = Date.now();
+
+  const buckets = bucketsEndingAt(now, hours);
+  const index = new Map(buckets.map((b, i) => [b, i]));
+
+  // Lee, por tipo, solo los buckets que EXISTEN (prefijo disperso → pocas claves)
+  // y colócalos en el array cronológico de la ventana. El prefijo termina en ':'
+  // (tras el agentId) para no colisionar con ids que comparten prefijo.
+  async function fill(type: EventType): Promise<number[]> {
+    const arr = new Array(hours).fill(0) as number[];
+    const keys = await listAllKeys(env.ANALYTICS_KV, `${evKey(type, agentId, "")}`);
+    const relevant = keys.filter((k) => {
+      const p = parseEvKey(k, type);
+      return p && p.agentId === agentId && index.has(p.bucket);
+    });
+    const values = await Promise.all(
+      relevant.map((k) => env.ANALYTICS_KV.get(k).then((v) => parseInt(v || "0", 10) || 0)),
+    );
+    relevant.forEach((k, i) => {
+      const p = parseEvKey(k, type)!;
+      const pos = index.get(p.bucket);
+      if (pos !== undefined) arr[pos] += values[i];
+    });
+    return arr;
+  }
+
+  const [views, hires] = await Promise.all([fill("view"), fill("hire")]);
+  const points: SeriesPoint[] = buckets.map((b, i) => ({
+    ts: new Date(parseBucket(b)).toISOString(),
+    views: views[i],
+    hires: hires[i],
+  }));
+
+  const out: SeriesResponse = {
+    agentId,
+    window,
+    points,
+    updatedAt: new Date(now).toISOString(),
+    source: "demand",
+  };
+  return json(out, env, 200, 15);
+}
+
+// ------------------------------------------------------------------ //
 // Router
 // ------------------------------------------------------------------ //
 export default {
@@ -433,6 +509,17 @@ export default {
       if (request.method !== "GET") return json({ error: "method_not_allowed" }, env, 405);
       try {
         return await handleTrending(url, env);
+      } catch (err) {
+        return json({ error: "internal", detail: String((err as Error).message) }, env, 500);
+      }
+    }
+
+    if (path.startsWith("/v1/series/")) {
+      if (request.method !== "GET") return json({ error: "method_not_allowed" }, env, 405);
+      const agentId = decodeURIComponent(path.slice("/v1/series/".length));
+      if (!agentId) return json({ error: "not_found" }, env, 404);
+      try {
+        return await handleSeries(agentId, url, env);
       } catch (err) {
         return json({ error: "internal", detail: String((err as Error).message) }, env, 500);
       }

@@ -2,13 +2,14 @@
  * HireRail — the headline "hire" surface. Sticky beside the CV content on
  * desktop; also reused inline under the header on mobile (see routes/agent.tsx).
  *
- * Contents: score meter, category/aisle, an honest x402/quote line, the primary
+ * Contents: score meter, subcategory/category, an honest x402/quote line, the primary
  * Hire CTA (scarce brand yellow), a Save toggle, and quick facts. No fabricated
  * price — the real quote is read live from the agent's 402 endpoint on /hire.
  */
 
 import { Link } from "react-router";
 
+import { hireHref } from "../../lib/agents";
 import type { AgentDetail } from "../../lib/contracts";
 import type { ProfileMeta } from "../../lib/profile";
 import { short } from "../../lib/profile";
@@ -41,8 +42,8 @@ export function HireRail({
   const snapshot = {
     id: agent.id,
     name: agent.name,
-    category: agent.category,
-    categoryLabel: agent.categoryLabel,
+    subcategory: agent.subcategory,
+    subcategoryLabel: agent.subcategoryLabel,
     score: agent.score,
     imageUrl: agent.imageUrl,
     source: agent.source,
@@ -70,7 +71,7 @@ export function HireRail({
       </p>
 
       <Link
-        to={`/hire?agent=${encodeURIComponent(agent.id)}`}
+        to={hireHref(agent.id, agent.chainId)}
         className="mt-4 flex w-full items-center justify-center rounded-[8px] bg-brand px-6 py-3 text-sm font-semibold text-bg transition-colors hover:bg-brand-bright"
       >
         Hire agent →
@@ -91,7 +92,7 @@ export function HireRail({
       </div>
 
       <div className="mt-4 border-t border-border/60 pt-2">
-        <Fact label="Category" value={agent.categoryLabel ?? "—"} />
+        <Fact label="Subcategory" value={agent.subcategoryLabel ?? "—"} />
         {typeof agent.rank === "number" && (
           <Fact label="Rank" value={`#${agent.rank}`} />
         )}

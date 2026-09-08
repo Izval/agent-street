@@ -1,18 +1,18 @@
 /**
- * Profile presentation layer — turns an agent's category into a professional
- * "CV / hire" framing. Keyed on the render TEMPLATE (categoryTemplate) for the
- * structure (role, tagline, specialty title, KPI labels) and on the AISLE for
+ * Profile presentation layer — turns an agent's subcategory into a professional
+ * "CV / hire" framing. Keyed on the render TEMPLATE (subcategoryTemplate) for the
+ * structure (role, tagline, specialty title, KPI labels) and on the CATEGORY for
  * the accent, per DESIGN.md §16/§17 and the redesign decision "adapt by both".
  *
  * Honesty rule (DESIGN.md §18): KPIs with no real backing in v1 render "—" with
- * a one-line reason. Nothing category-specific is fabricated — see the data
+ * a one-line reason. Nothing subcategory-specific is fabricated — see the data
  * inventory: only reputation and conditional onchain data are real.
  */
 
 import type { Agent } from "./agents";
 import type { AgentDetail } from "./contracts";
-import type { Aisle, Category, TemplateKind } from "./taxonomy";
-import { AISLES, aisleOf, categoryTemplate } from "./taxonomy";
+import type { Category, Subcategory, TemplateKind } from "./taxonomy";
+import { CATEGORIES, categoryOf, subcategoryTemplate } from "./taxonomy";
 
 // ---------------------------------------------------------------- //
 // Formatting helpers (shared across the profile sections)
@@ -39,13 +39,13 @@ export function humanize(s: string): string {
 }
 
 // ---------------------------------------------------------------- //
-// Per-template + per-category framing
+// Per-template + per-subcategory framing
 // ---------------------------------------------------------------- //
 
 export interface ProfileMeta {
   template: TemplateKind;
-  aisle: Aisle | null;
-  /** Accent token for the aisle (never competes with the brand yellow). */
+  category: Category | null;
+  /** Accent token for the category (never competes with the brand yellow). */
   accent: string;
   /** The agent's "job title". */
   role: string;
@@ -61,7 +61,7 @@ const TEMPLATE_META: Record<
 > = {
   clmm: {
     role: "Concentrated-liquidity range manager",
-    tagline: "Hire it to keep a PancakeSwap v3 position in an optimal range, managed onchain.",
+    tagline: "Hire it to keep a PancakeSwap v3 position in range and rebalancing onchain.",
     specialtyTitle: "Range strategy",
   },
   trading: {
@@ -96,8 +96,10 @@ const TEMPLATE_META: Record<
   },
 };
 
-/** Finer role label per specific category (falls back to the template role). */
-const ROLE_BY_CATEGORY: Partial<Record<Category, string>> = {
+/** Finer role label per specific subcategory (falls back to the template role). */
+const ROLE_BY_SUBCATEGORY: Partial<Record<Subcategory, string>> = {
+  rebalancing: "Concentrated-liquidity rebalancer",
+  "liquidity-pool": "LP management agent",
   grid: "Grid trading agent",
   dca: "DCA accumulation agent",
   momentum: "Momentum trading agent",
@@ -106,6 +108,8 @@ const ROLE_BY_CATEGORY: Partial<Record<Category, string>> = {
   perps: "Perpetuals trading agent",
   lending: "Lending strategist",
   "liquid-staking": "Liquid-staking router",
+  "meme-trading": "Meme trading agent",
+  "meme-launch": "Launch sniper",
   "nft-floor": "NFT floor strategist",
   "nft-mint": "Mint sniper",
   "rwa-treasury": "Treasury manager",
@@ -113,22 +117,24 @@ const ROLE_BY_CATEGORY: Partial<Record<Category, string>> = {
   "payments-x402": "x402 payments agent",
   "payments-jobs": "Job / seller agent",
   "infra-data": "Data & oracle agent",
-  "infra-wallet": "Wallet & keys agent",
   "infra-automation": "Automation agent",
+  "cyber-audit": "Security audit agent",
+  "cyber-monitor": "Threat monitoring agent",
+  "cyber-approvals": "Approval hygiene agent",
   "social-signals": "Signals agent",
   "social-narratives": "Narratives agent",
 };
 
 export function getProfileMeta(agent: Agent): ProfileMeta {
-  const template = categoryTemplate(agent.category);
-  const aisle = agent.category ? aisleOf(agent.category) : null;
-  const accent = AISLES.find((a) => a.id === aisle)?.accent ?? "var(--brand)";
+  const template = subcategoryTemplate(agent.subcategory);
+  const category = agent.subcategory ? categoryOf(agent.subcategory) : null;
+  const accent = CATEGORIES.find((a) => a.id === category)?.accent ?? "var(--brand)";
   const base = TEMPLATE_META[template];
   const role =
-    (agent.category && ROLE_BY_CATEGORY[agent.category]) || base.role;
+    (agent.subcategory && ROLE_BY_SUBCATEGORY[agent.subcategory]) || base.role;
   return {
     template,
-    aisle,
+    category,
     accent,
     role,
     tagline: base.tagline,
@@ -148,7 +154,7 @@ export interface Kpi {
 
 export function getTrackRecord(detail: AgentDetail): Kpi[] {
   const { agent, reputation, metrics, services, portfolio } = detail;
-  const template = categoryTemplate(agent.category);
+  const template = subcategoryTemplate(agent.subcategory);
 
   const score =
     reputation?.totalScore != null
@@ -175,10 +181,10 @@ export function getTrackRecord(detail: AgentDetail): Kpi[] {
   switch (template) {
     case "clmm":
       return [
+        { label: "LP capital", value: pValue, hint: pHint },
+        { label: "Repositions", value: nTrades, hint: tHint },
         { label: "Total score", value: score, hint: "8004scan" },
         { label: "Reviews", value: reviews, hint: "feedbacks" },
-        { label: "Portfolio", value: pValue, hint: pHint },
-        { label: "Range data", value: "—", hint: "live from endpoint" },
       ];
     case "trading":
       return [

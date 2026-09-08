@@ -13,7 +13,7 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { Card } from "./Card";
-import { X402Badge } from "./Badge";
+import { X402Badge, EndpointBadge } from "./Badge";
 import type { AgentServices } from "../lib/contracts";
 
 function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
@@ -120,6 +120,7 @@ export function AgentAccessPanel({
             A2A
           </span>
         )}
+        {a2a && <EndpointBadge live={services?.cardLive ?? false} />}
         {services?.mcpEndpoint && (
           <span className="rounded-[999px] border border-border px-2 py-0.5 text-xs font-semibold text-text-2">
             MCP

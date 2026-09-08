@@ -1,7 +1,7 @@
 /**
  * AgentFeatureCard — featured agent banner (App Store "Apps We Love" lineage).
  *
- * Cover art on top (`coverStyle` tinted by the aisle accent) and, BELOW the
+ * Cover art on top (`coverStyle` tinted by the category accent) and, BELOW the
  * art, the text: uppercase eyebrow, agent name and a subtitle line.
  * The whole thing is a link to `/agent/:id`. Meant to live inside a
  * `CollectionCarousel` (horizontal scroll-snap). SSR-safe (no effects).
@@ -9,7 +9,9 @@
 
 import { Link } from "react-router";
 import type { Agent } from "../lib/agents";
+import { agentHref } from "../lib/agents";
 import { coverStyle } from "../lib/cover";
+import { useImageLoad } from "../lib/useImageLoad";
 
 export function AgentFeatureCard({
   agent,
@@ -20,11 +22,10 @@ export function AgentFeatureCard({
   accent?: string;
   eyebrow: string;
 }) {
-  const isLive = agent.source === "8004scan";
-
+  const { ok, imgProps } = useImageLoad(agent.imageUrl);
   return (
     <Link
-      to={`/agent/${encodeURIComponent(agent.id)}`}
+      to={agentHref(agent)}
       aria-label={agent.name}
       className="group flex w-full flex-col gap-3"
     >
@@ -35,21 +36,15 @@ export function AgentFeatureCard({
       >
         {agent.imageUrl && (
           <img
+            {...imgProps}
             src={agent.imageUrl}
             alt=""
             aria-hidden
             loading="lazy"
-            onError={(e) => {
-              e.currentTarget.style.display = "none";
-            }}
-            className="absolute inset-0 h-full w-full object-cover"
+            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${
+              ok ? "opacity-100" : "opacity-0"
+            }`}
           />
-        )}
-        {isLive && (
-          <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/90 backdrop-blur-md">
-            <span className="live-dot inline-block h-1.5 w-1.5 rounded-full bg-up" />
-            Live
-          </span>
         )}
       </div>
 
@@ -62,7 +57,7 @@ export function AgentFeatureCard({
           {agent.name}
         </h3>
         <p className="mt-0.5 line-clamp-1 text-[13px] text-text-3">
-          {agent.description || agent.categoryLabel || "Agent on BNB Chain"}
+          {agent.description || agent.subcategoryLabel || "Agent on BNB Chain"}
         </p>
       </div>
     </Link>

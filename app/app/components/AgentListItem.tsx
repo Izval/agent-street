@@ -9,7 +9,9 @@
 
 import { Link } from "react-router";
 import type { Agent } from "../lib/agents";
-import { aisleOf, AISLES } from "../lib/taxonomy";
+import { agentHref } from "../lib/agents";
+import { categoryOf, CATEGORIES } from "../lib/taxonomy";
+import { useImageLoad } from "../lib/useImageLoad";
 
 function initials(name: string) {
   return name
@@ -21,15 +23,15 @@ function initials(name: string) {
 }
 
 export function AgentListItem({ agent }: { agent: Agent }) {
-  const aisle = agent.category ? aisleOf(agent.category) : null;
-  const accent = AISLES.find((a) => a.id === aisle)?.accent ?? "var(--brand)";
-  const isLive = agent.source === "8004scan";
+  const category = agent.subcategory ? categoryOf(agent.subcategory) : null;
+  const accent = CATEGORIES.find((a) => a.id === category)?.accent ?? "var(--brand)";
   const subtitle =
-    agent.description?.trim() || agent.categoryLabel || "Agent on BNB Chain";
+    agent.description?.trim() || agent.subcategoryLabel || "Agent on BNB Chain";
+  const { ok, imgProps } = useImageLoad(agent.imageUrl);
 
   return (
     <Link
-      to={`/agent/${encodeURIComponent(agent.id)}`}
+      to={agentHref(agent)}
       className="group flex items-center gap-3.5 rounded-xl px-2.5 py-2.5 transition-colors hover:bg-surface sm:gap-4"
     >
       {/* Square icon. Initials as the base; the image overlays it and, if it
@@ -44,13 +46,13 @@ export function AgentListItem({ agent }: { agent: Agent }) {
         {initials(agent.name)}
         {agent.imageUrl && (
           <img
+            {...imgProps}
             src={agent.imageUrl}
             alt=""
             loading="lazy"
-            onError={(e) => {
-              e.currentTarget.style.display = "none";
-            }}
-            className="absolute inset-0 h-full w-full object-cover"
+            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${
+              ok ? "opacity-100" : "opacity-0"
+            }`}
           />
         )}
       </span>
@@ -61,9 +63,6 @@ export function AgentListItem({ agent }: { agent: Agent }) {
           <span className="truncate text-sm font-semibold text-text">
             {agent.name}
           </span>
-          {isLive && (
-            <span className="live-dot inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-up" />
-          )}
         </div>
         <p className="mt-0.5 line-clamp-1 text-[13px] text-text-3">{subtitle}</p>
       </div>

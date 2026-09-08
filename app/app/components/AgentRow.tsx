@@ -1,18 +1,18 @@
 /**
  * AgentRow — dense list version of the agent (DESIGN.md v3 §5.7).
  *
- * Row toggled on by the chrome's grid/list switch. Columns: name + category,
+ * Row toggled on by the chrome's grid/list switch. Columns: name + subcategory,
  * score (with tone), secondary metric (avg), demand (sparkline) and a "View" action.
  * Links to `/agent/:id`. SSR-safe (no effects). Real data from 8004scan.
  */
 
 import { Link } from "react-router";
 import type { Agent } from "../lib/agents";
-import { aisleOf } from "../lib/taxonomy";
-import { AISLES } from "../lib/taxonomy";
+import { agentHref } from "../lib/agents";
+import { categoryOf } from "../lib/taxonomy";
+import { CATEGORIES } from "../lib/taxonomy";
 import { scoreTone } from "../lib/score";
 import { Sparkline } from "./charts/Sparkline";
-import { SourceBadge } from "./Badge";
 
 const TONE_TEXT: Record<"up" | "brand" | "down", string> = {
   up: "text-up",
@@ -37,16 +37,15 @@ export function AgentRow({
   demandSpark?: number[];
 }) {
   const tone = scoreTone(agent.score);
-  const aisle = agent.category ? aisleOf(agent.category) : null;
-  const accent = AISLES.find((a) => a.id === aisle)?.accent ?? "var(--brand)";
-  const isLive = agent.source === "8004scan";
+  const category = agent.subcategory ? categoryOf(agent.subcategory) : null;
+  const accent = CATEGORIES.find((a) => a.id === category)?.accent ?? "var(--brand)";
 
   return (
     <Link
-      to={`/agent/${encodeURIComponent(agent.id)}`}
+      to={agentHref(agent)}
       className="group grid grid-cols-[1fr_auto] items-center gap-3 rounded-lg border border-border/60 bg-surface px-4 py-3 transition-colors hover:border-brand/50 hover:bg-surface-2 sm:grid-cols-[minmax(0,1fr)_72px_72px_100px_64px]"
     >
-      {/* Name + category. */}
+      {/* Name + subcategory. */}
       <div className="flex min-w-0 items-center gap-3">
         <span
           aria-hidden
@@ -60,13 +59,9 @@ export function AgentRow({
             <span className="truncate text-sm font-semibold text-text">
               {agent.name}
             </span>
-            {isLive && (
-              <span className="live-dot inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-up text-up" />
-            )}
           </div>
           <div className="mt-0.5 flex items-center gap-2 text-[11px] text-text-3">
-            <span className="truncate">{agent.categoryLabel ?? "—"}</span>
-            <SourceBadge source={agent.source} />
+            <span className="truncate">{agent.subcategoryLabel ?? "—"}</span>
           </div>
         </div>
       </div>

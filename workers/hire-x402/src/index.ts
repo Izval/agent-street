@@ -15,17 +15,26 @@
 //
 // Endpoints:
 //   GET  /health
-//   GET  /v1/quote?agent=:id        → 402 { accepts: [X402Accept] } (o 404/409)
-//   POST /v1/hire                    → HireReceipt (verificación onchain)
+//   GET  /v1/quote?agent=:id         → 402 { accepts: [X402Accept] } (o 404/409)
+//   POST /v1/hire                     → HireReceipt (verificación onchain)
+//   GET  /v1/hires?address=           → historial de hires de una wallet
+//   GET  /v1/hires?agent=:id          → hires recientes de un agente (perfil)
+//   GET  /v1/cohires?agent=:id        → afinidad "frequently hired together"
+//   POST /v1/sessions                 → registra una sesión gestionada (manage flow)
+//   GET  /v1/sessions?address=        → sesiones de una identidad (+ used/remaining)
+//   POST /v1/sessions/revoke          → marca una sesión revocada (verifica revoke tx)
 
 import {
   ADDR_RE,
   TXHASH_RE,
   buildAccept,
+  scaleDown,
   verifyPayment,
+  verifyTxSuccess,
   type HireReceipt,
   type X402Accept,
 } from "./x402";
+import { fetchDeliverable } from "./deliverable";
 
 export interface Env {
   ALLOWED_ORIGIN: string;
@@ -44,10 +53,13 @@ export interface Env {
   EXPLORER_BASE: string;
   // URL del 8004-proxy para resolver la wallet del agente (payTo del quote).
   PROXY_8004_URL: string;
-  // Override de payTo para el flagship IVL (seed curado, no vive en 8004scan).
-  // Es una DIRECCIÓN PÚBLICA de cobro — nunca una llave. Opcional.
-  FLAGSHIP_AGENT_ID?: string;
-  FLAGSHIP_PAYTO?: string;
+  // Service binding al 8004-proxy. Un fetch worker-a-worker por *.workers.dev hace
+  // loopback y 404ea en la misma cuenta; en prod resolvemos vía este binding. Ausente
+  // en dev local, donde el fetch a PROXY_8004_URL (request externo real) sí funciona.
+  PROXY_8004?: Fetcher;
+  // Dirección pública del contrato KeyStore de Altana en chain 97 (para el link
+  // "ver en el keystore explorer" de una sesión). Opcional; no es una llave.
+  ALTANA_KEYSTORE?: string;
 }
 
 const NETWORK = "bsc-testnet";
@@ -102,20 +114,18 @@ function tokenMeta(env: Env): { symbol: string; decimals: number } {
 // Quote — resuelve la wallet del agente (payTo) y publica un 402.
 // ------------------------------------------------------------------ //
 
-/** Lee la wallet de cobro del agente desde el 8004-proxy. null si no se resuelve. */
+/**
+ * Reads the agent's payout wallet from the 8004-proxy. null if it can't resolve.
+ * Fully generic per CLAUDE.md §2: no FLAGSHIP override, no per-agent special-casing —
+ * every listing (IVL included) resolves its payTo the same way, from its on-chain
+ * 8004scan record. An agent that doesn't expose a wallet simply can't be hired yet.
+ */
 async function resolveAgentPayTo(env: Env, agentId: string): Promise<string | null> {
-  // Flagship IVL: seed curado (no está en 8004scan) → payTo por override de env.
-  if (
-    env.FLAGSHIP_AGENT_ID &&
-    env.FLAGSHIP_PAYTO &&
-    agentId === env.FLAGSHIP_AGENT_ID &&
-    ADDR_RE.test(env.FLAGSHIP_PAYTO)
-  ) {
-    return env.FLAGSHIP_PAYTO;
-  }
   try {
     const url = `${env.PROXY_8004_URL.replace(/\/$/, "")}/v1/agents/${encodeURIComponent(agentId)}`;
-    const res = await fetch(url, { headers: { accept: "application/json" } });
+    const res = env.PROXY_8004
+      ? await env.PROXY_8004.fetch(url, { headers: { accept: "application/json" } })
+      : await fetch(url, { headers: { accept: "application/json" } });
     if (!res.ok) return null;
     const a = (await res.json()) as Record<string, unknown>;
     const wallet =
@@ -180,6 +190,7 @@ interface HireBody {
   accept?: unknown;
   txHash?: unknown;
   from?: unknown;
+  sessionId?: unknown;
 }
 
 /** Registro de una contratación liquidada (para "Mis agentes"). */
@@ -194,6 +205,8 @@ export interface HireRecord {
   explorerUrl: string | null;
   payTo: string;
   settledAt: string;
+  /** id de la sesión gestionada bajo la que se contrató (manage flow). null = pago directo. */
+  sessionId: string | null;
 }
 
 const hireKey = (addr: string, txHash: string) =>
@@ -214,8 +227,77 @@ async function recordHire(
   }
 }
 
-/** GET /v1/hires?address= — historial de contrataciones de una wallet. */
+/**
+ * GET /v1/cohires?agent=:id&limit= — afinidad "frequently hired together".
+ *
+ * Agrega los hires liquidados por wallet y devuelve, para el agente ancla, los
+ * OTROS agentes que las mismas wallets también contrataron (conteo real de
+ * co-hires). NO expone direcciones — solo pares de agentIds + un total de
+ * wallets. Es el dato honesto detrás del rail del marketplace; el worker de
+ * portfolios lo consume vía binding y lo enriquece con nombres/categorías.
+ */
+async function handleCohires(url: URL, env: Env): Promise<Response> {
+  const agentId = url.searchParams.get("agent");
+  if (!agentId) return json({ error: "agent_required" }, env, 400);
+  const limit = Math.min(24, Math.max(1, Number(url.searchParams.get("limit")) || 8));
+
+  if (!env.HIRES_KV) {
+    return json({ agentId, partners: [], wallets: 0, source: "unavailable" }, env, 200);
+  }
+
+  // Grupo de agentes contratados por cada wallet (address → set de agentIds).
+  const byWallet = new Map<string, Set<string>>();
+  let cursor: string | undefined;
+  do {
+    const res = await env.HIRES_KV.list({ prefix: "hire:", cursor, limit: 1000 });
+    for (const k of res.keys) {
+      // key = hire:{addr}:{txHash} — addr es el 2º segmento (hex sin ':').
+      const parts = k.name.split(":");
+      if (parts.length < 3) continue;
+      const addr = parts[1];
+      const rec = (await env.HIRES_KV.get(k.name, "json")) as HireRecord | null;
+      if (!rec || !rec.agentId) continue;
+      let set = byWallet.get(addr);
+      if (!set) {
+        set = new Set<string>();
+        byWallet.set(addr, set);
+      }
+      set.add(rec.agentId);
+    }
+    cursor = res.list_complete ? undefined : res.cursor;
+  } while (cursor);
+
+  // Cuenta co-hires: por cada wallet que contrató al ancla, tallar sus otros agentes.
+  const tally = new Map<string, number>();
+  let wallets = 0;
+  for (const set of byWallet.values()) {
+    if (!set.has(agentId)) continue;
+    wallets++;
+    for (const other of set) {
+      if (other === agentId) continue;
+      tally.set(other, (tally.get(other) ?? 0) + 1);
+    }
+  }
+
+  const partners = [...tally.entries()]
+    .map(([id, coHires]) => ({ agentId: id, coHires }))
+    .sort((a, b) => b.coHires - a.coHires || (a.agentId < b.agentId ? -1 : 1))
+    .slice(0, limit);
+
+  return json({ agentId, partners, wallets, source: "kv" }, env, 200, 30);
+}
+
+/**
+ * GET /v1/hires?address=  — historial de contrataciones de una wallet.
+ * GET /v1/hires?agent=:id — hires recientes DE un agente (feed del perfil).
+ *
+ * El modo `agent` escanea todos los `hire:` y filtra por agentId (igual que
+ * cohires). No expone wallets: solo el registro del hire (tx, monto, cuándo).
+ */
 async function handleHires(url: URL, env: Env): Promise<Response> {
+  const agentId = url.searchParams.get("agent");
+  if (agentId) return handleAgentHires(agentId, url, env);
+
   const address = url.searchParams.get("address");
   if (!address || !ADDR_RE.test(address)) {
     return json({ error: "invalid_address" }, env, 400);
@@ -231,6 +313,309 @@ async function handleHires(url: URL, env: Env): Promise<Response> {
   }
   out.sort((a, b) => (a.settledAt < b.settledAt ? 1 : -1));
   return json({ address: address.toLowerCase(), hires: out, source: "kv" }, env, 200);
+}
+
+/** Hires liquidados de UN agente (recientes primero). Escaneo de `hire:` +
+ *  filtro por agentId; sin direcciones en la salida (solo el registro). */
+async function handleAgentHires(agentId: string, url: URL, env: Env): Promise<Response> {
+  const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit")) || 12));
+  if (!env.HIRES_KV) {
+    return json({ agentId, hires: [], source: "unavailable" }, env, 200);
+  }
+  const out: HireRecord[] = [];
+  let cursor: string | undefined;
+  do {
+    const res = await env.HIRES_KV.list({ prefix: "hire:", cursor, limit: 1000 });
+    for (const k of res.keys) {
+      const rec = (await env.HIRES_KV.get(k.name, "json")) as HireRecord | null;
+      if (rec && rec.agentId === agentId) out.push(rec);
+    }
+    cursor = res.list_complete ? undefined : res.cursor;
+  } while (cursor);
+  out.sort((a, b) => (a.settledAt < b.settledAt ? 1 : -1));
+  return json({ agentId, hires: out.slice(0, limit), source: "kv" }, env, 200, 30);
+}
+
+// ------------------------------------------------------------------ //
+// Managed sessions (manage flow · Altana account sessions).
+//
+// A session = scoped delegation with a per-token spend cap + expiry, granted
+// on-chain via the Altana account/keystore (chain 97) and revocable in one tx.
+// The CLIENT signs the grant/revoke through the Altana SDK + relay; this worker
+// stays KEYLESS — it only (a) verifies the grant/revoke tx succeeded on-chain
+// when a hash is available and (b) persists the session record so /manage and
+// /me can render it. The keystore contract itself is the on-chain source of
+// truth; we never fabricate a tx hash (DESIGN.md §18).
+// ------------------------------------------------------------------ //
+
+interface StoredSpendCap {
+  token: string | null;
+  limitBase: string;
+  period: string;
+  symbol: string | null;
+  decimals: number | null;
+}
+
+/** Sesión persistida bajo la identidad del owner (manage flow). */
+interface SessionRecord {
+  id: string; // session key public key — id único + handle de revocación
+  walletAddress: string; // Altana smart-account sobre la que actúa la sesión
+  spend: StoredSpendCap[];
+  allowlist: string[]; // agentIds permitidos (vacío = cualquiera)
+  expiry: number; // unix seconds
+  network: string;
+  grantTxHash: string | null;
+  grantExplorerUrl: string | null;
+  /** true una vez revocada (persiste el estado aunque el relay no dé tx hash). */
+  revoked: boolean;
+  revokeTxHash: string | null;
+  revokeExplorerUrl: string | null;
+  createdAt: string;
+}
+
+type SessionStatus = "active" | "expired" | "revoked";
+
+const sessionKey = (owner: string, id: string) =>
+  `session:${owner.toLowerCase()}:${id.toLowerCase()}`;
+const SESSION_PREFIX = (owner: string) => `session:${owner.toLowerCase()}:`;
+
+function sessionStatus(rec: SessionRecord, nowSec: number): SessionStatus {
+  if (rec.revoked || rec.revokeTxHash) return "revoked";
+  if (rec.expiry && nowSec >= rec.expiry) return "expired";
+  return "active";
+}
+
+/** Suma el gasto (de-scaled) de los hires liquidados bajo una sesión. */
+async function sumSessionSpend(
+  env: Env,
+  owner: string,
+  sessionId: string,
+): Promise<number> {
+  if (!env.HIRES_KV) return 0;
+  let used = 0;
+  const listing = await env.HIRES_KV.list({ prefix: HIRE_PREFIX(owner) });
+  for (const k of listing.keys) {
+    const rec = (await env.HIRES_KV.get(k.name, "json")) as HireRecord | null;
+    if (rec && rec.sessionId === sessionId && typeof rec.amount === "number") {
+      used += rec.amount;
+    }
+  }
+  return used;
+}
+
+/** Serializa un SessionRecord a la forma pública `Session` (con status + used/remaining). */
+function toSessionView(rec: SessionRecord, nowSec: number, used: number) {
+  const cap = rec.spend[0];
+  let remaining: number | null = null;
+  if (cap && /^\d+$/.test(cap.limitBase)) {
+    const limit = scaleDown(BigInt(cap.limitBase), cap.decimals ?? 18);
+    remaining = Math.max(0, limit - used);
+  }
+  return {
+    id: rec.id,
+    walletAddress: rec.walletAddress,
+    spend: rec.spend,
+    allowlist: rec.allowlist,
+    expiry: rec.expiry,
+    network: rec.network,
+    status: sessionStatus(rec, nowSec),
+    grantTxHash: rec.grantTxHash,
+    grantExplorerUrl: rec.grantExplorerUrl,
+    revokeTxHash: rec.revokeTxHash,
+    revokeExplorerUrl: rec.revokeExplorerUrl,
+    createdAt: rec.createdAt,
+    usedAmount: used,
+    remainingAmount: remaining,
+  };
+}
+
+interface CreateSessionBody {
+  owner?: unknown;
+  walletAddress?: unknown;
+  id?: unknown; // session publicKey
+  spend?: unknown;
+  allowlist?: unknown;
+  expiry?: unknown;
+  grantTxHash?: unknown;
+  network?: unknown;
+}
+
+const VALID_PERIODS = new Set([
+  "minute",
+  "hour",
+  "day",
+  "week",
+  "month",
+  "year",
+]);
+
+function normalizeSpend(v: unknown): StoredSpendCap[] {
+  if (!Array.isArray(v)) return [];
+  const out: StoredSpendCap[] = [];
+  for (const item of v) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const limitBase = typeof o.limitBase === "string" ? o.limitBase : "";
+    const period = typeof o.period === "string" ? o.period : "";
+    if (!/^\d+$/.test(limitBase) || !VALID_PERIODS.has(period)) continue;
+    out.push({
+      token:
+        typeof o.token === "string" && ADDR_RE.test(o.token) ? o.token : null,
+      limitBase,
+      period,
+      symbol: typeof o.symbol === "string" ? o.symbol : null,
+      decimals: typeof o.decimals === "number" ? o.decimals : null,
+    });
+  }
+  return out;
+}
+
+/** POST /v1/sessions — registra una sesión concedida (verifica el grant tx si lo hay). */
+async function handleCreateSession(request: Request, env: Env): Promise<Response> {
+  let body: CreateSessionBody;
+  try {
+    body = (await request.json()) as CreateSessionBody;
+  } catch {
+    return json({ error: "invalid_json" }, env, 400);
+  }
+
+  const owner = typeof body.owner === "string" ? body.owner : "";
+  const walletAddress =
+    typeof body.walletAddress === "string" ? body.walletAddress : "";
+  const id = typeof body.id === "string" ? body.id : "";
+  const expiry = typeof body.expiry === "number" ? body.expiry : 0;
+  const spend = normalizeSpend(body.spend);
+  const allowlist = Array.isArray(body.allowlist)
+    ? body.allowlist.filter((a): a is string => typeof a === "string")
+    : [];
+  const grantTxHash =
+    typeof body.grantTxHash === "string" && TXHASH_RE.test(body.grantTxHash)
+      ? body.grantTxHash
+      : null;
+
+  if (!ADDR_RE.test(owner)) return json({ error: "invalid_owner" }, env, 422);
+  if (!ADDR_RE.test(walletAddress))
+    return json({ error: "invalid_wallet" }, env, 422);
+  if (!/^0x[0-9a-fA-F]{2,}$/.test(id)) return json({ error: "invalid_id" }, env, 422);
+  if (!Number.isFinite(expiry) || expiry <= 0)
+    return json({ error: "invalid_expiry" }, env, 422);
+  if (spend.length === 0) return json({ error: "invalid_spend" }, env, 422);
+
+  // Si el cliente aportó el tx del grant, lo verificamos onchain (honesto). El
+  // relay de Altana puede confirmar sin surfacear un hash → grantTxHash null.
+  if (grantTxHash) {
+    const v = await verifyTxSuccess(env.BSC_TESTNET_RPC, grantTxHash);
+    if (v.status === "pending") {
+      return json({ status: "pending", detail: v.detail }, env, 202);
+    }
+    if (v.status === "failed") {
+      return json({ error: "grant_tx_failed", detail: v.detail }, env, 422);
+    }
+  }
+
+  const explorer = env.EXPLORER_BASE.replace(/\/$/, "");
+  const rec: SessionRecord = {
+    id,
+    walletAddress,
+    spend,
+    allowlist,
+    expiry,
+    network: NETWORK,
+    grantTxHash,
+    grantExplorerUrl: grantTxHash ? `${explorer}/tx/${grantTxHash}` : null,
+    revoked: false,
+    revokeTxHash: null,
+    revokeExplorerUrl: null,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (env.HIRES_KV) {
+    try {
+      await env.HIRES_KV.put(sessionKey(owner, id), JSON.stringify(rec));
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  return json(toSessionView(rec, nowSec, 0), env, 200);
+}
+
+/** GET /v1/sessions?address= — sesiones de una identidad, con status + used/remaining. */
+async function handleSessions(url: URL, env: Env): Promise<Response> {
+  const address = url.searchParams.get("address");
+  if (!address || !ADDR_RE.test(address)) {
+    return json({ error: "invalid_address" }, env, 400);
+  }
+  if (!env.HIRES_KV) {
+    return json({ address, sessions: [], source: "unavailable" }, env, 200);
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  const listing = await env.HIRES_KV.list({ prefix: SESSION_PREFIX(address) });
+  const sessions = [];
+  for (const k of listing.keys) {
+    const rec = (await env.HIRES_KV.get(k.name, "json")) as SessionRecord | null;
+    if (!rec) continue;
+    const used = await sumSessionSpend(env, address, rec.id);
+    sessions.push(toSessionView(rec, nowSec, used));
+  }
+  sessions.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  return json({ address: address.toLowerCase(), sessions, source: "kv" }, env, 200);
+}
+
+interface RevokeSessionBody {
+  owner?: unknown;
+  id?: unknown;
+  revokeTxHash?: unknown;
+}
+
+/** POST /v1/sessions/revoke — marca una sesión revocada (verifica el revoke tx si lo hay). */
+async function handleRevokeSession(request: Request, env: Env): Promise<Response> {
+  let body: RevokeSessionBody;
+  try {
+    body = (await request.json()) as RevokeSessionBody;
+  } catch {
+    return json({ error: "invalid_json" }, env, 400);
+  }
+  const owner = typeof body.owner === "string" ? body.owner : "";
+  const id = typeof body.id === "string" ? body.id : "";
+  const revokeTxHash =
+    typeof body.revokeTxHash === "string" && TXHASH_RE.test(body.revokeTxHash)
+      ? body.revokeTxHash
+      : null;
+
+  if (!ADDR_RE.test(owner)) return json({ error: "invalid_owner" }, env, 422);
+  if (!/^0x[0-9a-fA-F]{2,}$/.test(id)) return json({ error: "invalid_id" }, env, 422);
+  if (!env.HIRES_KV) return json({ error: "kv_unavailable" }, env, 503);
+
+  const rec = (await env.HIRES_KV.get(sessionKey(owner, id), "json")) as
+    | SessionRecord
+    | null;
+  if (!rec) return json({ error: "session_not_found" }, env, 404);
+
+  if (revokeTxHash) {
+    const v = await verifyTxSuccess(env.BSC_TESTNET_RPC, revokeTxHash);
+    if (v.status === "pending") {
+      return json({ status: "pending", detail: v.detail }, env, 202);
+    }
+    if (v.status === "failed") {
+      return json({ error: "revoke_tx_failed", detail: v.detail }, env, 422);
+    }
+  }
+
+  const explorer = env.EXPLORER_BASE.replace(/\/$/, "");
+  rec.revoked = true;
+  rec.revokeTxHash = revokeTxHash;
+  rec.revokeExplorerUrl = revokeTxHash ? `${explorer}/tx/${revokeTxHash}` : null;
+  try {
+    await env.HIRES_KV.put(sessionKey(owner, id), JSON.stringify(rec));
+  } catch {
+    /* best-effort */
+  }
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const used = await sumSessionSpend(env, owner, id);
+  return json(toSessionView(rec, nowSec, used), env, 200);
 }
 
 function isAccept(v: unknown): v is X402Accept {
@@ -289,13 +674,25 @@ async function handleHire(request: Request, env: Env): Promise<Response> {
   });
 
   if (result.ok) {
+    // Payment settled. Now dispatch the task to the agent's OWN published endpoint
+    // (generic marketplace seam) and attach whatever work-product it returns. This
+    // is best-effort: on no endpoint / timeout / non-conforming reply the receipt
+    // stays payment-only. Never fabricated, never conditional on which agent it is.
+    const endpoint = typeof body.endpoint === "string" ? body.endpoint : "";
+    const task = typeof body.task === "string" ? body.task : "";
+    const agentId = typeof body.agentId === "string" ? body.agentId : "";
+    const deliverable = endpoint ? await fetchDeliverable(endpoint, task, from, agentId) : null;
+    const receipt: HireReceipt = deliverable
+      ? { ...result.receipt, deliverable }
+      : result.receipt;
+
     // Persistir el hire liquidado bajo la wallet del pagador (para "Mis agentes").
     if (from) {
       const r = result.receipt;
       await recordHire(env, from, {
-        agentId: typeof body.agentId === "string" ? body.agentId : "",
+        agentId,
         agentName: typeof body.agentName === "string" ? body.agentName : null,
-        task: typeof body.task === "string" ? body.task : null,
+        task: task || null,
         amount: r.amount,
         assetSymbol: r.assetSymbol,
         network: NETWORK,
@@ -303,9 +700,10 @@ async function handleHire(request: Request, env: Env): Promise<Response> {
         explorerUrl: r.explorerUrl,
         payTo: accept.payTo,
         settledAt: r.settledAt ?? new Date().toISOString(),
+        sessionId: typeof body.sessionId === "string" ? body.sessionId : null,
       });
     }
-    return json(result.receipt, env, 200);
+    return json(receipt, env, 200);
   }
 
   const receipt: HireReceipt = {
@@ -342,6 +740,10 @@ export default {
     try {
       if (request.method === "POST") {
         if (path === "/v1/hire") return await handleHire(request, env);
+        if (path === "/v1/sessions/revoke")
+          return await handleRevokeSession(request, env);
+        if (path === "/v1/sessions")
+          return await handleCreateSession(request, env);
         return json({ error: "not_found" }, env, 404);
       }
       if (request.method !== "GET") {
@@ -358,6 +760,8 @@ export default {
       }
       if (path === "/v1/quote") return await handleQuote(url, env);
       if (path === "/v1/hires") return await handleHires(url, env);
+      if (path === "/v1/sessions") return await handleSessions(url, env);
+      if (path === "/v1/cohires") return await handleCohires(url, env);
 
       return json({ error: "not_found" }, env, 404);
     } catch (err) {

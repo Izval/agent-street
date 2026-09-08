@@ -1,20 +1,20 @@
 /**
- * Category chips (DESIGN.md §5): pill --surface-2; active state has --bg text over
- * --brand. Link to /category/:id. Equal treatment for the 4 (Agent Diversity).
+ * Subcategory chips (DESIGN.md §5): pill --surface-2; active state has --bg text over
+ * --brand. Link to /subcategory/:id. Equal treatment for the 4 (Agent Diversity).
  */
 
 import { Link } from "react-router";
-import { CATEGORIES, CATEGORY_LABELS, type Category } from "../lib/categories";
+import { SUBCATEGORIES, SUBCATEGORY_LABELS, type Subcategory } from "../lib/subcategories";
 
-export function CategoryChips({ active }: { active?: Category }) {
+export function SubcategoryChips({ active }: { active?: Subcategory }) {
   return (
     <div className="flex flex-wrap gap-2">
-      {CATEGORIES.map((id) => {
+      {SUBCATEGORIES.map((id) => {
         const isActive = id === active;
         return (
           <Link
             key={id}
-            to={`/category/${id}`}
+            to={`/subcategory/${id}`}
             className={
               "rounded-[999px] px-4 py-1.5 text-sm font-semibold transition-colors " +
               (isActive
@@ -22,7 +22,7 @@ export function CategoryChips({ active }: { active?: Category }) {
                 : "bg-surface-2 text-text-2 hover:text-text")
             }
           >
-            {CATEGORY_LABELS[id]}
+            {SUBCATEGORY_LABELS[id]}
           </Link>
         );
       })}

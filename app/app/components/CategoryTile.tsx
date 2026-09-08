@@ -1,8 +1,8 @@
 /**
- * CategoryTile — highly visual category bento (DESIGN.md v3 §5.4, Apple Arcade lineage).
+ * CategoryTile — highly visual subcategory bento (DESIGN.md v3 §5.4, Apple Arcade lineage).
  *
  * Background = full-bleed abstract art (`coverStyle`), translucent glyph and large name.
- * At rest it shows NO data: it's a whole category, not a metrics card.
+ * At rest it shows NO data: it's a whole subcategory, not a metrics card.
  * On hover it discreetly reveals (fade-up) the agent count and subtypes, with
  * lift + tilt ≤3°. `featured` spans 2 columns. Accessible card-link.
  *
@@ -21,7 +21,7 @@ export function CategoryTile({
   count,
   subtypes,
   accent,
-  aisleId,
+  categoryId,
   featured = false,
 }: {
   to: string;
@@ -30,7 +30,7 @@ export function CategoryTile({
   count?: number;
   subtypes?: string[];
   accent?: string;
-  aisleId?: string;
+  categoryId?: string;
   featured?: boolean;
 }) {
   const [reduced, setReduced] = useState(false);
@@ -77,7 +77,7 @@ export function CategoryTile({
         "group relative flex min-h-[188px] flex-col justify-end overflow-hidden rounded-2xl p-5 shadow-[var(--elev-1)] transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] hover:shadow-[var(--elev-2)] " +
         (featured ? "sm:col-span-2 sm:min-h-[220px]" : "")
       }
-      style={{ ...coverStyle(aisleId ?? label, accent), transform, willChange: "transform" }}
+      style={{ ...coverStyle(categoryId ?? label, accent), transform, willChange: "transform" }}
     >
       {/* Large translucent glyph. */}
       {glyph && (

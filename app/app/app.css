@@ -104,21 +104,22 @@
 }
 
 /* ------------------------------------------------------------------ *
- * v2 — App Store tokens: glass, per-aisle accents, charts palette.
- * (DESIGN.md v2 §Glass, §Aisles, §Charts). Yellow stays scarce; these
+ * v2 — App Store tokens: glass, per-category accents, charts palette.
+ * (DESIGN.md v2 §Glass, §Categories, §Charts). Yellow stays scarce; these
  * accents are subtle and are NOT used as section backgrounds.
  * ------------------------------------------------------------------ */
 
-/* Per-aisle accents (subtle; sidebar glyph, section underline).
+/* Per-category accents (subtle; sidebar glyph, section underline).
    Theme-invariant; chosen for the canonical dark surface. */
 :root {
   --accent-trading: #4c8dff;
-  --accent-defi: #9085e9;
+  --accent-liquidity: #16b8c9;
+  --accent-lending: #9085e9;
+  --accent-yield: #2fae6b;
+  --accent-meme: #e0642c;
   --accent-nft: #d55181;
-  --accent-rwa: #199e70;
+  --accent-rwa: #5b7fa6;
   --accent-infra: #9aa4b2;
-  --accent-payments: #d95926;
-  --accent-social: #22b8cf;
 
   /* Categorical series palette (allocation, bar-compare). LIGHT steps
      (validated in the dataviz skill). Do NOT use for polarity → that is up/down. */
@@ -300,14 +301,81 @@ html[data-theme="dark"] {
   -webkit-backdrop-filter: blur(8px);
 }
 
-/* Per-aisle background gradients (CategoryTile). color-mix → tinted dark. */
+/* Per-category background gradients (CategoryTile). color-mix → tinted dark. */
 .grad-trading { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-trading) 20%, #0b0e11), #0b0e11 70%); }
-.grad-defi { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-defi) 20%, #0b0e11), #0b0e11 70%); }
+.grad-liquidity { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-liquidity) 20%, #0b0e11), #0b0e11 70%); }
+.grad-lending { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-lending) 20%, #0b0e11), #0b0e11 70%); }
+.grad-yield { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-yield) 20%, #0b0e11), #0b0e11 70%); }
+.grad-meme { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-meme) 20%, #0b0e11), #0b0e11 70%); }
 .grad-nft { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-nft) 20%, #0b0e11), #0b0e11 70%); }
 .grad-rwa { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-rwa) 20%, #0b0e11), #0b0e11 70%); }
 .grad-infra { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-infra) 20%, #0b0e11), #0b0e11 70%); }
-.grad-payments { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-payments) 20%, #0b0e11), #0b0e11 70%); }
-.grad-social { background-image: linear-gradient(140deg, color-mix(in srgb, var(--accent-social) 20%, #0b0e11), #0b0e11 70%); }
+
+/* ── Bento explorer beams — TWO slow lines that tour the mosaic. ──
+   Each line lights one tile at a time: it traces that tile's border once, then
+   hops to the next, "exploring" the subcategories. A tile lights during its slot of
+   the shared 20s loop (staggered by `--beam-i`, its position in the tour); the
+   second line (`--b`) is offset by half the loop (10s) so it runs on the
+   opposite side — together the two trace the whole grid every ~10s. Each takes
+   the tile's `--accent` (its focus color). Built as a conic gradient masked to a
+   1px border ring; `@property` animates the angle smoothly. The keyframe active
+   window (≈11.1%) matches the 9-tile tour length. Gated by prefers-reduced-motion. */
+@property --beam-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+.bento-beam {
+  --beam-n: 9;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--beam-angle),
+    color-mix(in srgb, var(--accent) 95%, transparent) 0deg,
+    color-mix(in srgb, var(--accent) 35%, transparent) 30deg,
+    transparent 70deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  animation: bento-explore 20s linear infinite;
+  animation-delay: calc(var(--beam-i, 0) * -20s / 9);
+}
+/* Second line: tours the opposite direction (index sign flipped) and shifted
+   half the loop, so it explores the far side and meets the first head-on. */
+.bento-beam--b {
+  animation-name: bento-explore-b;
+  animation-delay: calc(var(--beam-i, 0) * 20s / 9 - 10s);
+}
+/* One lap + fade during the first ~1/9 of the loop; dark the rest of the tour. */
+@keyframes bento-explore {
+  0%     { --beam-angle: 0deg;   opacity: 0; }
+  0.6%   { opacity: 0.9; }
+  9.4%   { opacity: 0.9; }
+  11.1%  { --beam-angle: 360deg; opacity: 0; }
+  100%   { --beam-angle: 360deg; opacity: 0; }
+}
+/* Second line's lap runs the opposite way (angle 360→0), mirroring the first. */
+@keyframes bento-explore-b {
+  0%     { --beam-angle: 360deg; opacity: 0; }
+  0.6%   { opacity: 0.9; }
+  9.4%   { opacity: 0.9; }
+  11.1%  { --beam-angle: 0deg;   opacity: 0; }
+  100%   { --beam-angle: 0deg;   opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bento-beam { animation: none; opacity: 0; }
+}
 
 /* Cinematic background field (depth without noise). */
 .field-glow {
@@ -457,6 +525,122 @@ body {
 [data-numeric] {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
+}
+
+/* ------------------------------------------------------------------ *
+ * Documentation prose — markdown → design tokens (DESIGN §3 scale).
+ * Dark-canonical; only existing token vars, no hardcoded hex.
+ * ------------------------------------------------------------------ */
+.doc-prose {
+  color: var(--text-2);
+  font-size: 16px;
+  line-height: 1.65;
+  max-width: 44rem;
+}
+.doc-prose > :first-child {
+  margin-top: 0;
+}
+.doc-prose h2 {
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 700;
+  margin: 2.2rem 0 0.75rem;
+}
+.doc-prose h3 {
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1.25;
+  font-weight: 600;
+  margin: 1.8rem 0 0.5rem;
+}
+.doc-prose h4 {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  margin: 1.4rem 0 0.4rem;
+}
+.doc-prose p {
+  margin: 0.9rem 0;
+}
+.doc-prose a {
+  color: var(--brand);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--brand) 40%, transparent);
+}
+.doc-prose a:hover {
+  border-bottom-color: var(--brand);
+}
+.doc-prose strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.doc-prose ul,
+.doc-prose ol {
+  margin: 0.9rem 0;
+  padding-left: 1.4rem;
+}
+.doc-prose li {
+  margin: 0.35rem 0;
+}
+.doc-prose li::marker {
+  color: var(--text-3);
+}
+.doc-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  color: var(--text);
+}
+.doc-prose pre {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 1.1rem 0;
+}
+.doc-prose pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.doc-prose blockquote {
+  margin: 1.1rem 0;
+  padding: 0.2rem 0 0.2rem 1rem;
+  border-left: 2px solid var(--border);
+  color: var(--text-3);
+}
+.doc-prose hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 2rem 0;
+}
+.doc-prose table {
+  display: block;
+  width: 100%;
+  border-collapse: collapse;
+  overflow-x: auto;
+  margin: 1.2rem 0;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.doc-prose th,
+.doc-prose td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+.doc-prose th {
+  color: var(--text);
+  font-weight: 600;
+  background: var(--surface-2);
 }
 
 /* Accessible focus (DESIGN §8) */

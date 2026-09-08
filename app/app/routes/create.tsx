@@ -1,88 +1,157 @@
 /**
- * /create — "Create your own agent" wizard (BNB Agent Studio publish flow).
+ * /create — "Create your own agent" wizard (client-pays ERC-8004 mint).
  *
- * A friendly 3-step wizard (Basics → Config → Review) that publishes a new
- * ERC-8004 agent live on BSC testnet and lists it in the marketplace. The
- * orchestration runs server-side in `action()` (mirrors `/hire`): it calls the
- * registrar (`/v1/register`, onchain mint) then the proxy (`/v1/submitted`,
- * listing). Wallet connection is required — the connected address is recorded as
- * the listing's creator (the ERC-8004 token is held by the registrar's treasury-
- * funded ephemeral wallet; promotion to mainnet is done by the owner later).
+ * A 3-step wizard (Basics → Config → Review). On publish, the USER'S wallet mints
+ * the ERC-8004 identity on-chain directly — `register(agentURI)` on the
+ * IdentityRegistry (see `lib/erc8004.ts`) — so the user owns the identity and pays
+ * their own gas (no treasury, no server-side signing). Once the mint confirms, the
+ * route `action()` only LISTS the agent in the marketplace (proxy `/v1/submitted`)
+ * with the real agentId + txHash. Wallet connection + a little tBNB are required.
  */
 
 import { env } from "cloudflare:workers";
 import { useMemo, useState } from "react";
 import { Link, useFetcher } from "react-router";
-import { useAccount } from "wagmi";
+import { agentHref } from "../lib/agents";
+import {
+  useAccount,
+  useBalance,
+  usePublicClient,
+  useSwitchChain,
+  useWriteContract,
+} from "wagmi";
+import { decodeEventLog } from "viem";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 
 import type { Route } from "./+types/create";
-import type { Category } from "../lib/taxonomy";
+import type { Subcategory } from "../lib/taxonomy";
 import {
-  CATEGORY_DEFS,
-  CATEGORY_BY_ID,
-  CATEGORIES,
-  REQUIRED_CATEGORIES,
-  categoryLabel,
+  SUBCATEGORY_DEFS,
+  SUBCATEGORY_BY_ID,
+  SUBCATEGORIES,
+  REQUIRED_SUBCATEGORIES,
+  subcategoryLabel,
 } from "../lib/taxonomy";
-import { createRegistrarClient } from "../lib/registrar";
-import type { PublishReceipt } from "../lib/registrar";
+import { createListingClient } from "../lib/registrar";
+import type { MintResult, PublishReceipt } from "../lib/registrar";
 import { PAYMENT_CHAIN } from "../lib/wallet/config";
+import { REGISTRY_BY_CHAIN, REGISTRY_ABI, buildAgentUri } from "../lib/erc8004";
 import { AppShell } from "../components/AppShell";
 import { Card } from "../components/Card";
 import { Select } from "../components/Select";
 import { WalletButton } from "../components/WalletButton";
 
 const EXPLORER = "https://testnet.bscscan.com";
+const FAUCET = "https://testnet.bnbchain.org/faucet-smart";
 
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Create agent — Agent-Street" }];
 }
 
+/**
+ * List a freshly-minted agent in the marketplace. The on-chain mint already
+ * happened in the browser (client-pays); this only persists the listing with the
+ * real agentId + txHash the user's transaction produced.
+ */
 export async function action({ request }: Route.ActionArgs) {
   const form = await request.formData();
   const name = String(form.get("name") ?? "").trim();
   const description = String(form.get("description") ?? "").trim();
-  const category = String(form.get("category") ?? "").trim();
+  const subcategory = String(form.get("subcategory") ?? "").trim();
   const endpoint = String(form.get("endpoint") ?? "").trim();
   const protocol = String(form.get("protocol") ?? "A2A").trim() || "A2A";
   const x402 = String(form.get("x402") ?? "") === "true";
-  const from = String(form.get("from") ?? "").trim() || null;
+  const agentId = String(form.get("agentId") ?? "").trim();
+  const txHash = String(form.get("txHash") ?? "").trim();
+  const ownerAddress = String(form.get("ownerAddress") ?? "").trim();
+  const chainId = Number(form.get("chainId") ?? PAYMENT_CHAIN.id) || PAYMENT_CHAIN.id;
 
   if (!name || !description) {
     return { receipt: null as PublishReceipt | null, error: "Name and description are required." };
   }
-  if (!category || !(CATEGORIES as readonly string[]).includes(category)) {
-    return { receipt: null as PublishReceipt | null, error: "Pick a category for your agent." };
+  if (!subcategory || !(SUBCATEGORIES as readonly string[]).includes(subcategory)) {
+    return { receipt: null as PublishReceipt | null, error: "Pick a subcategory for your agent." };
   }
-  if (!from) {
-    return { receipt: null as PublishReceipt | null, error: "Connect your wallet before publishing." };
+  if (!agentId || !txHash || !ownerAddress) {
+    return {
+      receipt: null as PublishReceipt | null,
+      error: "Missing on-chain mint result — the agent was not minted. Try publishing again.",
+    };
   }
 
-  const registrar = createRegistrarClient({
-    registrarUrl: env.REGISTRAR_URL,
+  const listing = createListingClient({
     proxyUrl: env.PROXY_8004_URL,
+    fetcher: env.PROXY_8004,
   });
 
   try {
-    const receipt = await registrar.publish(
-      { name, description, category: category as Category, endpoint, protocol },
-      from,
+    const receipt = await listing.listCreatedAgent(
+      { name, description, subcategory: subcategory as Subcategory, endpoint, protocol },
+      { agentId, txHash, ownerAddress, chainId } satisfies MintResult,
       x402,
     );
     return { receipt, error: null as string | null };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    // The registrar is the one non-Cloudflare hop; a fetch failure (unreachable
-    // host / localhost in prod) reads as a network error. Tell those apart from a
-    // genuine on-chain register failure so the message is actionable.
-    const unreachable =
-      /fetch failed|network|ECONNREFUSED|connect|dns|timed? ?out/i.test(msg);
-    const error = unreachable
-      ? "Publish failed: the registrar service is unreachable (check REGISTRAR_URL / that the registrar is running). Your agent was not registered — try again."
-      : `Publish failed: ${msg}. Your agent was not registered — try again.`;
-    return { receipt: null as PublishReceipt | null, error };
+    // The mint already succeeded on-chain; only the marketplace listing failed.
+    return {
+      receipt: null as PublishReceipt | null,
+      error: `Your agent was minted on-chain (tx ${txHash.slice(0, 12)}…) but listing it failed: ${msg}. It will still resolve on 8004scan; retry to list it here.`,
+    };
   }
+}
+
+// ---- Client-side mint helpers ------------------------------------------ //
+
+/** Base for the placeholder agent-card URL when the user leaves the endpoint blank. */
+const PLACEHOLDER_BASE = "https://agent-street.pages.dev/agent/pending";
+
+function slugify(text: string): string {
+  return (
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "agent"
+  );
+}
+
+/** Parse the `Registered(agentId, agentURI, owner)` event out of the receipt logs. */
+function extractAgentId(
+  logs: readonly { address: string; topics: readonly `0x${string}`[]; data: `0x${string}` }[],
+  registry: string,
+): string | null {
+  const reg = registry.toLowerCase();
+  for (const log of logs) {
+    if (log.address.toLowerCase() !== reg) continue;
+    try {
+      const decoded = decodeEventLog({
+        abi: REGISTRY_ABI,
+        data: log.data,
+        topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
+      });
+      if (decoded.eventName === "Registered") {
+        return String((decoded.args as { agentId: bigint }).agentId);
+      }
+    } catch {
+      // Not the Registered event — keep scanning.
+    }
+  }
+  return null;
+}
+
+/** Turn wallet/provider errors into a short, honest message for the wizard. */
+function mintErrorMessage(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/user rejected|denied|rejected the request/i.test(msg)) {
+    return "You rejected the signature — nothing was minted.";
+  }
+  if (/insufficient funds|exceeds the balance|gas required/i.test(msg)) {
+    return "Not enough tBNB for gas. Top up from the faucet and retry.";
+  }
+  if (/reverted/i.test(msg)) {
+    return "The register transaction reverted on-chain. Nothing was minted.";
+  }
+  return `Mint failed: ${msg.slice(0, 160)}`;
 }
 
 // ---- Small UI primitives (local to the wizard) ------------------------- //
@@ -135,19 +204,19 @@ function Field({
   );
 }
 
-function CategoryPicker({
+function SubcategoryPicker({
   value,
   onChange,
 }: {
-  value: Category | "";
-  onChange: (c: Category) => void;
+  value: Subcategory | "";
+  onChange: (c: Subcategory) => void;
 }) {
-  const otherCats = CATEGORY_DEFS.filter((c) => !c.required);
-  const isRequired = value ? REQUIRED_CATEGORIES.includes(value) : false;
+  const otherCats = SUBCATEGORY_DEFS.filter((c) => !c.required);
+  const isRequired = value ? REQUIRED_SUBCATEGORIES.includes(value) : false;
   return (
     <div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {REQUIRED_CATEGORIES.map((id) => {
+        {REQUIRED_SUBCATEGORIES.map((id) => {
           const active = value === id;
           return (
             <button
@@ -161,18 +230,18 @@ function CategoryPicker({
                   : "border-border bg-surface-2 text-text-2 hover:border-brand/60")
               }
             >
-              {categoryLabel(id)}
+              {subcategoryLabel(id)}
             </button>
           );
         })}
       </div>
       <div className="mt-2 flex items-center gap-2">
-        <span className="shrink-0 text-xs text-text-3">or another category</span>
+        <span className="shrink-0 text-xs text-text-3">or another subcategory</span>
         <Select
           className="flex-1"
-          ariaLabel="Other category"
+          ariaLabel="Other subcategory"
           value={isRequired ? "" : value}
-          onChange={(v) => onChange(v as Category)}
+          onChange={(v) => onChange(v as Subcategory)}
           options={otherCats.map((c) => ({ value: c.id, label: c.label }))}
         />
       </div>
@@ -192,57 +261,42 @@ function ReviewLine({ label, value }: { label: string; value: string }) {
 // ---- Success step ------------------------------------------------------- //
 
 function Success({ receipt }: { receipt: PublishReceipt }) {
-  const registered = receipt.status === "registered";
-  const tone = registered
-    ? { border: "border-up/40", text: "text-up", label: "Registered on-chain" }
-    : { border: "border-brand/40", text: "text-brand", label: "Pending" };
   return (
-    <Card className={`mt-6 border p-6 ${tone.border}`}>
+    <Card className="mt-6 border border-up/40 p-6">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-text-3">
           Agent published
         </h2>
-        <span className={`text-xs font-bold uppercase ${tone.text}`}>{tone.label}</span>
+        <span className="text-xs font-bold uppercase text-up">Registered on-chain</span>
       </div>
       <div className="mt-3">
-        <ReviewLine label="Agent ID" value={receipt.agentId ?? "—"} />
-        <ReviewLine
-          label="Tx"
-          value={receipt.txHash ? `${receipt.txHash.slice(0, 12)}…` : "—"}
-        />
+        <ReviewLine label="Agent ID" value={receipt.agentId} />
+        <ReviewLine label="Tx" value={`${receipt.txHash.slice(0, 12)}…`} />
         <ReviewLine label="Network" value={`BSC testnet · ${receipt.chainId}`} />
         <ReviewLine
-          label="Creator"
+          label="Owner"
           value={`${receipt.ownerAddress.slice(0, 6)}…${receipt.ownerAddress.slice(-4)}`}
         />
       </div>
 
       <Link
-        to={`/agent/${encodeURIComponent(receipt.marketplaceId)}`}
+        to={agentHref({ id: receipt.agentId, chainId: receipt.chainId })}
         className="mt-5 block rounded-[8px] bg-brand px-5 py-3 text-center text-sm font-semibold text-bg transition-colors hover:bg-brand-bright"
       >
         View your agent →
       </Link>
-      {receipt.txHash && (
-        <a
-          href={`${EXPLORER}/tx/${receipt.txHash}`}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-2 block rounded-[8px] border border-border px-5 py-3 text-center text-sm font-semibold text-text transition-colors hover:border-brand"
-        >
-          View transaction on BscScan ↗
-        </a>
-      )}
-      {receipt.mode === "dry_run" && (
-        <p className="mt-3 text-center text-xs text-text-3">
-          Listed in DRY_RUN mode — the registrar has no treasury key yet, so no
-          on-chain identity was minted. Set <span className="tnum">TREASURY_PRIVATE_KEY</span> on
-          the registrar to mint for real.
-        </p>
-      )}
-      {receipt.detail && (
-        <p className="mt-3 text-center text-xs text-text-3">{receipt.detail}</p>
-      )}
+      <a
+        href={`${EXPLORER}/tx/${receipt.txHash}`}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-2 block rounded-[8px] border border-border px-5 py-3 text-center text-sm font-semibold text-text transition-colors hover:border-brand"
+      >
+        View transaction on BscScan ↗
+      </a>
+      <p className="mt-3 text-center text-xs text-text-3">
+        You own this ERC-8004 identity — it was minted from your wallet, which
+        paid the gas.
+      </p>
     </Card>
   );
 }
@@ -255,31 +309,47 @@ export default function Create() {
   const actionError = fetcher.data?.error ?? null;
   const submitting = fetcher.state !== "idle";
 
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, chainId } = useAccount();
   const { openConnectModal } = useConnectModal();
+  const { switchChainAsync } = useSwitchChain();
+  const { writeContractAsync } = useWriteContract();
+  const publicClient = usePublicClient({ chainId: PAYMENT_CHAIN.id });
+  const { data: balance } = useBalance({
+    address,
+    chainId: PAYMENT_CHAIN.id,
+    query: { enabled: Boolean(address) },
+  });
 
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState<Category | "">("");
+  const [subcategory, setSubcategory] = useState<Subcategory | "">("");
   const [endpoint, setEndpoint] = useState("");
   const [protocol, setProtocol] = useState("A2A");
   const [x402, setX402] = useState(false);
   const [touched, setTouched] = useState(false);
+  // Client-side mint lifecycle (distinct from the fetcher's listing phase).
+  const [minting, setMinting] = useState(false);
+  const [mintError, setMintError] = useState<string | null>(null);
 
-  const basicsValid = name.trim().length > 0 && description.trim().length > 0 && category !== "";
-  const catLabel = category ? categoryLabel(category) : "—";
-  const template = category ? CATEGORY_BY_ID[category]?.template : null;
+  // tBNB needed: the user pays their own gas. Zero balance → block + faucet nudge.
+  const hasFunds = balance ? balance.value > 0n : undefined;
+  // Busy = signing/confirming the mint (minting) or persisting the listing (submitting).
+  const busy = minting || submitting;
+
+  const basicsValid = name.trim().length > 0 && description.trim().length > 0 && subcategory !== "";
+  const catLabel = subcategory ? subcategoryLabel(subcategory) : "—";
+  const template = subcategory ? SUBCATEGORY_BY_ID[subcategory]?.template : null;
 
   const stepError = useMemo(() => {
     if (!touched) return null;
     if (step === 0) {
       if (!name.trim()) return "Give your agent a name.";
       if (!description.trim()) return "Add a short description.";
-      if (!category) return "Pick a category.";
+      if (!subcategory) return "Pick a subcategory.";
     }
     return null;
-  }, [touched, step, name, description, category]);
+  }, [touched, step, name, description, subcategory]);
 
   function next() {
     setTouched(true);
@@ -292,27 +362,77 @@ export default function Create() {
     setStep((s) => Math.max(s - 1, 0));
   }
 
-  function publish() {
+  async function publish() {
     if (!isConnected || !address) {
       openConnectModal?.();
       return;
     }
-    fetcher.submit(
-      {
+    setMintError(null);
+    const registry = REGISTRY_BY_CHAIN[PAYMENT_CHAIN.id];
+    if (!registry || !publicClient) {
+      setMintError("Unsupported network — switch to BSC testnet and retry.");
+      return;
+    }
+
+    setMinting(true);
+    try {
+      // 1. Make sure the wallet is on BSC testnet before signing.
+      if (chainId !== PAYMENT_CHAIN.id) {
+        await switchChainAsync({ chainId: PAYMENT_CHAIN.id });
+      }
+
+      // 2. Build the self-contained ERC-8004 agent URI (no off-chain hosting).
+      const agentUri = buildAgentUri({
         name: name.trim(),
         description: description.trim(),
-        category,
-        endpoint: endpoint.trim(),
+        endpoint: endpoint.trim() || `${PLACEHOLDER_BASE}/${slugify(name)}`,
         protocol: protocol.trim() || "A2A",
-        x402: x402 ? "true" : "false",
-        from: address,
-      },
-      { method: "post" },
-    );
+      });
+
+      // 3. User signs + pays: register(agentURI) on the IdentityRegistry.
+      const txHash = await writeContractAsync({
+        address: registry,
+        abi: REGISTRY_ABI,
+        functionName: "register",
+        args: [agentUri],
+        chainId: PAYMENT_CHAIN.id,
+      });
+
+      // 4. Wait for the receipt and pull the new agentId from the Registered event.
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+      if (receipt.status !== "success") {
+        throw new Error("The register transaction reverted on-chain.");
+      }
+      const agentId = extractAgentId(receipt.logs, registry);
+      if (!agentId) {
+        throw new Error("Minted, but could not read the agent id from the receipt.");
+      }
+
+      // 5. Hand the mint result to the action, which lists it in the marketplace.
+      fetcher.submit(
+        {
+          name: name.trim(),
+          description: description.trim(),
+          subcategory,
+          endpoint: endpoint.trim(),
+          protocol: protocol.trim() || "A2A",
+          x402: x402 ? "true" : "false",
+          agentId,
+          txHash,
+          ownerAddress: address,
+          chainId: String(PAYMENT_CHAIN.id),
+        },
+        { method: "post" },
+      );
+    } catch (e) {
+      setMintError(mintErrorMessage(e));
+    } finally {
+      setMinting(false);
+    }
   }
 
   return (
-    <AppShell activeCategory={category || undefined}>
+    <AppShell activeSubcategory={subcategory || undefined}>
       <div className="mx-auto max-w-[720px]">
         <div className="py-2">
           <Link
@@ -355,8 +475,8 @@ export default function Create() {
                     onChange={(e) => setDescription(e.target.value)}
                   />
                 </Field>
-                <Field label="Category">
-                  <CategoryPicker value={category} onChange={setCategory} />
+                <Field label="Subcategory">
+                  <SubcategoryPicker value={subcategory} onChange={setSubcategory} />
                 </Field>
               </div>
             )}
@@ -374,8 +494,8 @@ export default function Create() {
                   />
                 </Field>
                 <p className="-mt-2 text-xs text-text-3">
-                  Leave blank and the registrar assigns a placeholder card you can
-                  update later.
+                  Leave blank and a placeholder agent-card URL is recorded on-chain;
+                  you can point it at your live agent later.
                 </p>
                 <Field label="Protocol">
                   <Select
@@ -410,7 +530,7 @@ export default function Create() {
               <div className="mt-5">
                 <div className="rounded-[8px] border border-border p-4">
                   <ReviewLine label="Name" value={name.trim() || "—"} />
-                  <ReviewLine label="Category" value={catLabel} />
+                  <ReviewLine label="Subcategory" value={catLabel} />
                   {template && <ReviewLine label="Template" value={template} />}
                   <ReviewLine label="Endpoint" value={endpoint.trim() || "placeholder (auto)"} />
                   <ReviewLine label="Protocol" value={protocol} />
@@ -422,29 +542,44 @@ export default function Create() {
                 {!isConnected ? (
                   <div className="mt-5 rounded-[8px] border border-brand/40 bg-brand/5 p-4">
                     <p className="text-sm text-text">
-                      Connect your wallet to publish. Your address is recorded as
-                      the agent's creator; you don't pay gas — the registrar mints
-                      the identity for you on testnet.
+                      Connect your wallet to publish. You mint the ERC-8004 identity
+                      yourself on BSC testnet — you own it, and your wallet pays the
+                      gas (a fraction of a cent in tBNB).
                     </p>
                     <div className="mt-3 flex justify-center">
                       <WalletButton />
                     </div>
                   </div>
+                ) : hasFunds === false ? (
+                  <div className="mt-5 rounded-[8px] border border-down/40 bg-down/5 p-4">
+                    <p className="text-sm text-text">
+                      Your wallet has no tBNB to pay for gas. Grab some free testnet
+                      BNB from the faucet, then publish.
+                    </p>
+                    <a
+                      href={FAUCET}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-3 inline-block rounded-[8px] border border-border px-4 py-2 text-sm font-semibold text-text transition-colors hover:border-brand"
+                    >
+                      Open BSC testnet faucet ↗
+                    </a>
+                  </div>
                 ) : (
                   <p className="mt-4 text-center text-xs text-text-3">
-                    Creator:{" "}
+                    Owner:{" "}
                     <span className="tnum">
                       {address?.slice(0, 6)}…{address?.slice(-4)}
                     </span>{" "}
-                    · minted on BSC testnet ({PAYMENT_CHAIN.name})
+                    · you sign &amp; pay the mint on BSC testnet ({PAYMENT_CHAIN.name})
                   </p>
                 )}
               </div>
             )}
 
-            {(stepError || actionError) && (
+            {(stepError || mintError || actionError) && (
               <p className="mt-4 text-center text-xs text-down">
-                {stepError ?? actionError}
+                {stepError ?? mintError ?? actionError}
               </p>
             )}
 
@@ -453,7 +588,7 @@ export default function Create() {
               <button
                 type="button"
                 onClick={back}
-                disabled={step === 0 || submitting}
+                disabled={step === 0 || busy}
                 className="rounded-[8px] border border-border px-4 py-2.5 text-sm font-semibold text-text-2 transition-colors hover:border-brand hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Back
@@ -472,14 +607,16 @@ export default function Create() {
                 <button
                   type="button"
                   onClick={publish}
-                  disabled={submitting}
+                  disabled={busy || (isConnected && hasFunds === false)}
                   className="rounded-[8px] bg-brand px-5 py-2.5 text-sm font-semibold text-bg transition-colors hover:bg-brand-bright disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {submitting
-                    ? "Publishing on BSC testnet…"
-                    : !isConnected
-                      ? "Connect wallet to publish"
-                      : "Publish on BSC testnet"}
+                  {minting
+                    ? "Confirm in your wallet…"
+                    : submitting
+                      ? "Listing your agent…"
+                      : !isConnected
+                        ? "Connect wallet to publish"
+                        : "Mint on BSC testnet"}
                 </button>
               )}
             </div>

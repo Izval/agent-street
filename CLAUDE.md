@@ -31,8 +31,9 @@ La meta es maximizar probabilidad de ganar reutilizando IVL de forma agresiva y 
   distinto a un dashboard de agente — planear en consecuencia*.
 - **Main + partner son combinables:** ganar el track principal **no** excluye de los bounties de partners
   (se juzgan independientemente). → nuestro doble-dip es válido y buscado.
-- **Agent Diversity es requisito, no adorno:** las 4 categorías (rebalancing, grid, yield, health factor)
-  con **igual profundidad**. **Submissions de una sola categoría puntúan mal.** No basta con IVL.
+- **Agent Diversity es requisito, no adorno:** las **4 subcategorías obligatorias** (rebalancing, grid,
+  yield, health factor) con **igual profundidad** — un subset dentro de los 8 aisles, no el total.
+  **Submissions de una sola categoría puntúan mal.** No basta con IVL.
 - **Elegibilidad:** global, solo o equipo, 1 entrada; el marketplace debe estar **público y funcional**
   durante el judging y **los agentes listados deben estar vivos en BSC**.
 - **Altana:** exige **tx onchain en vivo visibles en el Altana explorer** (testnet cuenta).
@@ -41,7 +42,16 @@ La meta es maximizar probabilidad de ganar reutilizando IVL de forma agresiva y 
 
 ## 2. Qué se construye
 Marketplace donde se **descubren, comparan y contratan** agentes ERC-8004 en BSC. **Dos tabs:**
-- **Agents** — agentes contratables, en 4 categorías: **Rebalancing · Grid · Yield · Health Factor**.
+- **Agents** — agentes contratables. La taxonomía real son **8 aisles** (Trading · Liquidity Providing ·
+  Lending · Yield · Meme · NFT · RWA · Infrastructure) con sus subcategorías dentro; se construye para
+  servir **todo** el espectro, no solo el reto. (Nota: en el código el nivel top-level aún se llama
+  `Aisle` / `AISLES` y la URL es `/aisle/:id` — el rename `aisle → categoría` está pendiente para un PR
+  aparte; "aisle" en el código = "categoría" de cara al usuario.) Payments y Cybersecurity viven dentro
+  de **Infrastructure**; Social se disolvió en **Trading**. Las **4 subcategorías obligatorias del
+  hackathon** — **Rebalancing · Grid · Yield · Health Factor** — son un **subset** con equal-depth
+  requerido (ver Agent Diversity), **no** el universo, y conservan sus ids estables. Fuente de verdad de
+  la taxonomía: `app/app/lib/taxonomy.ts` (`AISLES` / `CATEGORY_DEFS`; `REQUIRED_CATEGORIES` = las 4),
+  espejada en `workers/8004-proxy/src/classify.ts`. No tratar "las 4" como si fueran todas las categorías.
 - **Skills** — módulos componibles (`SKILL.md` / skills de Altana) que un agente enchufa.
 
 **IVL se lista dos veces:** como Agent (Rebalancer) y como Skill — pero como **listing normal**, igual
@@ -70,7 +80,8 @@ que cualquier otro. Demuestra composabilidad (ERC-8183, delegación de tareas en
   **listing de ejemplo**, desplegable y separable, no parte del core del marketplace.
 
 Criterios de juzgado a optimizar: **Functionality** (journey de descubrir→activar), **Data Quality**
-(datos onchain reales de 8004scan), **Agent Diversity** (trato igual a las 4 categorías).
+(datos onchain reales de 8004scan), **Agent Diversity** (trato igual a las 4 subcategorías obligatorias,
+dentro de una taxonomía de 8 aisles y sus subcategorías que sí se construye completa).
 
 ## 3. Stack y arquitectura
 - **Frontend:** **Remix** sobre **Cloudflare Pages** (NO Next.js/Vercel — el usuario usa Cloudflare).
@@ -125,6 +136,12 @@ El plan por fases completo está en `docs/roadmap.md §4`.
 - **Secuencia de-risk:** asegurar bounties primero (valor casi garantizado), marketplace como upside.
 - **Language (hard rule): ALL text — UI copy, code, comments, and docs — MUST be in English.**
   El código de Agent-Street es entregable a BNB Chain; no debe contener español.
+- **Banned words (hard rule):** the words **"honest", "honesty", "honestly"** and their Spanish
+  equivalents (**"honesto/a", "honestidad", "honestamente"**) are **totally banned** everywhere —
+  UI copy, code, identifiers, comments, docs, and commit messages. Say what the data *is* and
+  where it comes from (e.g. "real", "from 8004scan", "not indexed", "—") instead of asserting it's
+  honest. The underlying rule (no invented/estimated data; label the source; show "—" when missing)
+  still holds — just never use these words to describe it.
 - **Repo separado a propósito** (técnico **y** estratégico, ver §2): no mezclar runtimes ni secretos
   con `third_city`. El único puente hacia el motor IVL (`api.zvlint.com`) vive en el agente separado
   `agent-ivl/`; **el marketplace no importa ese código ni llama a esa API**. Razón estratégica:

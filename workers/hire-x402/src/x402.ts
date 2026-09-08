@@ -24,6 +24,20 @@ export interface X402Accept {
 
 export type HireStatus = "settled" | "pending" | "failed";
 
+/**
+ * Work-product an agent returns when hired. Generic — the marketplace dispatches
+ * the task to the listing's own published A2A endpoint and renders whatever comes
+ * back. Populated ONLY from a real endpoint response; never fabricated.
+ */
+export interface HireDeliverable {
+  kind: "text" | "range" | "link" | "json";
+  title: string;
+  /** Human-readable summary / body of the result. */
+  body: string;
+  /** Optional supporting links (e.g. an on-chain position, a tx). */
+  links?: { label: string; url: string }[];
+}
+
 export interface HireReceipt {
   status: HireStatus;
   txHash: string | null;
@@ -32,6 +46,8 @@ export interface HireReceipt {
   assetSymbol: string | null;
   settledAt: string | null;
   detail?: string | null;
+  /** Deliverable returned by the hired agent's endpoint. Absent if none. */
+  deliverable?: HireDeliverable | null;
 }
 
 // keccak256("Transfer(address,address,uint256)")
@@ -219,6 +235,34 @@ export async function verifyPayment(input: VerifyInput): Promise<VerifyResult> {
     return { ok: false, status: "failed", detail: "El monto transferido es menor al exigido." };
   }
   return { ok: true, receipt: settled(paid) };
+}
+
+/**
+ * Verificación ligera de una tx que NO es una transferencia (p. ej. el grant o
+ * el revoke de una sesión Altana, enviados por el relay al account/keystore).
+ * Solo confirma que la tx existe y liquidó (status success). Honesto: si no se
+ * puede leer todavía → "pending"; si revirtió → "failed". No decodifica logs
+ * (el keystore es la fuente de verdad on-chain de la sesión).
+ */
+export async function verifyTxSuccess(
+  rpcUrl: string,
+  txHash: string,
+): Promise<{ status: HireStatus; detail?: string }> {
+  let receipt: RpcReceipt | null;
+  try {
+    receipt = (await rpc(rpcUrl, "eth_getTransactionReceipt", [
+      txHash,
+    ])) as RpcReceipt | null;
+  } catch (err) {
+    return { status: "pending", detail: `rpc: ${String(err)}` };
+  }
+  if (!receipt) {
+    return { status: "pending", detail: "La transacción aún no está confirmada onchain." };
+  }
+  if (receipt.status !== "0x1") {
+    return { status: "failed", detail: "La transacción revirtió onchain." };
+  }
+  return { status: "settled" };
 }
 
 /** Construye el `accept` x402 del listing (fuente de quote controlada por el marketplace). */

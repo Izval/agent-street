@@ -13,11 +13,38 @@ binding = "AGENTS_KV"
 id = "48df5fb2f0114b788b96093eac73ee4f"
 preview_id = "09098ef7959a4625b62f438c749c78b9"
 
+# Cron del corpus propio (self-fetch): cada 5 min refrescamos el snapshot de 8004scan
+# en AGENTS_KV + enriquecimiento onchain, para NO depender del rate-limit anónimo por
+# request. Local: curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Service binding al indexer onchain (mismo account). El cron le pide { totalUsd, txCount }
+# por agente vía POST /v1/summary para el filtro de base. Alternativa: ONCHAIN_INDEXER_URL.
+[[services]]
+binding = "ONCHAIN_INDEXER"
+service = "agent-street-onchain-indexer"
+
 [vars]
 # CORS: el front (Pages) consumirá este proxy. Ajustar al dominio real en prod.
 ALLOWED_ORIGIN = "*"
 # Base de la 8004scan Public API (verificada en vivo 17-ago-2026).
 SCAN_8004_BASE = "https://8004scan.io/api/v1/public"
+# --- Filtro onchain de base (Y/O, sin badges). Tuneables SIN redeploy de código. ---
+# Semántica Y/O: pasa si tiene min de tx O min de capital (un lado <=0 lo desactiva).
+# Data real BSC (240 agentes medidos): ~95% tienen <$1 en la wallet resoluble (el
+# capital vive fuera del owner/EOA), así que el capital NO puede ser filtro DURO;
+# txCount es la señal fiable. CALIBRAR con GET /v1/corpus/stats: subir MIN_TX_COUNT
+# tras enriquecer todo el corpus, vigilando que las 4 obligatorias no se vacíen.
+MIN_TX_COUNT = "1"      # nonce mínimo (tx salientes reales) — señal principal
+MIN_CAPITAL_USD = "1"   # capital USD como ESCAPE (OR), no requisito; 0 lo desactiva
+DROP_UNMEASURED = "0"   # "1" ⇒ descarta también los no medibles (arriesga vaciar grid)
+# Construcción del corpus (cron rotatorio; el feed anónimo tiene rate-limit bajo).
+CORPUS_PAGES = "8"           # páginas globales top-score (limit=100) en el ciclo
+CORPUS_FETCH_PER_TICK = "4"  # jobs a 8004scan por tick (bajo el límite anónimo ~10/min)
+ENRICH_BUDGET = "60"         # agentes a enriquecer por corrida (incremental)
+# Fallback si no se usa el service binding de arriba:
+# ONCHAIN_INDEXER_URL = "https://agent-street-onchain-indexer.zevlat.workers.dev"
 
 # Secret opcional (no en el repo):  wrangler secret put SCAN_8004_API_KEY
 # La API funciona ANÓNIMA (~10 req/min); la key Pro solo sube el rate-limit.

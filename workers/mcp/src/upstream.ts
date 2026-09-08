@@ -19,6 +19,21 @@ export interface Env {
   ANALYTICS_URL?: string;
   INDEXER_URL?: string;
   MCP_SERVER_NAME?: string;
+  // Service bindings to the same-account workers. Worker-to-worker calls over
+  // *.workers.dev loop back and 404 on the same account, so in production we route
+  // through these bindings; they are absent in local dev, where the plain fetch on
+  // the *_URL vars (a real external request) works fine.
+  PROXY_8004?: Fetcher;
+  HIRE_X402?: Fetcher;
+}
+
+/**
+ * Fetch an upstream worker via its service binding when present, else a plain
+ * fetch on the given URL. The binding ignores the URL host and routes to the bound
+ * service; we keep passing the full *_URL so local dev (no binding) still works.
+ */
+function svc(binding: Fetcher | undefined, url: string, init?: RequestInit): Promise<Response> {
+  return binding ? binding.fetch(url, init) : fetch(url, init);
 }
 
 // --- 8004-proxy shapes (mirror) --------------------------------------------- //
@@ -174,7 +189,7 @@ export async function fetchAgents(
   if (q.page) params.set("page", String(q.page));
   if (q.limit) params.set("limit", String(q.limit));
   const url = `${trim(env.PROXY_8004_URL)}/v1/agents?${params.toString()}`;
-  const res = await fetch(url, { headers: { accept: "application/json" } });
+  const res = await svc(env.PROXY_8004, url, { headers: { accept: "application/json" } });
   if (!res.ok) {
     throw new UpstreamError(`8004-proxy ${res.status}`, "8004-proxy", res.status);
   }
@@ -184,7 +199,7 @@ export async function fetchAgents(
 /** Returns null on 404 (agent not found) — a normal, non-error outcome. */
 export async function fetchAgent(env: Env, id: string): Promise<AgentDetail | null> {
   const url = `${trim(env.PROXY_8004_URL)}/v1/agents/${encodeURIComponent(id)}`;
-  const res = await fetch(url, { headers: { accept: "application/json" } });
+  const res = await svc(env.PROXY_8004, url, { headers: { accept: "application/json" } });
   if (res.status === 404) return null;
   if (!res.ok) {
     throw new UpstreamError(`8004-proxy ${res.status}`, "8004-proxy", res.status);
@@ -197,7 +212,7 @@ export async function fetchCategories(
   env: Env,
 ): Promise<Array<{ id: string; label: string }>> {
   const url = `${trim(env.PROXY_8004_URL)}/health`;
-  const res = await fetch(url, { headers: { accept: "application/json" } });
+  const res = await svc(env.PROXY_8004, url, { headers: { accept: "application/json" } });
   if (!res.ok) {
     throw new UpstreamError(`8004-proxy ${res.status}`, "8004-proxy", res.status);
   }
@@ -216,7 +231,7 @@ export type QuoteResult =
  */
 export async function fetchQuote(env: Env, agentId: string): Promise<QuoteResult> {
   const url = `${trim(env.HIRE_X402_URL)}/v1/quote?agent=${encodeURIComponent(agentId)}`;
-  const res = await fetch(url, { headers: { accept: "application/json" } });
+  const res = await svc(env.HIRE_X402, url, { headers: { accept: "application/json" } });
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (res.status === 402) {
     return {
@@ -237,7 +252,7 @@ export async function postHire(
   body: Record<string, unknown>,
 ): Promise<HireReceipt> {
   const url = `${trim(env.HIRE_X402_URL)}/v1/hire`;
-  const res = await fetch(url, {
+  const res = await svc(env.HIRE_X402, url, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify(body),
@@ -253,7 +268,7 @@ export async function fetchHires(
   address: string,
 ): Promise<{ address: string; hires: HireRecord[] }> {
   const url = `${trim(env.HIRE_X402_URL)}/v1/hires?address=${encodeURIComponent(address)}`;
-  const res = await fetch(url, { headers: { accept: "application/json" } });
+  const res = await svc(env.HIRE_X402, url, { headers: { accept: "application/json" } });
   if (!res.ok) {
     throw new UpstreamError(`hire-x402 ${res.status}`, "hire-x402", res.status);
   }

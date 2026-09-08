@@ -1,9 +1,9 @@
 /**
- * CategoryHero — editorial banner for a category page (DESIGN.md v3 §12/§20).
+ * SubcategoryHero — editorial banner for a subcategory page (DESIGN.md v3 §12/§20).
  *
- * Full-bleed cover (abstract `coverStyle` art tinted with the aisle accent),
+ * Full-bleed cover (abstract `coverStyle` art tinted with the category accent),
  * legibility gradient and a white text block at the bottom-left: eyebrow
- * (aisle · template), large title, editorial tagline and a row of honest
+ * (category · template), large title, editorial tagline and a row of honest
  * metadata (agent count + data source). Optional CTA for the flagship.
  *
  * SSR-safe: pure component (no `window`, no effects). Yellow is reserved
@@ -12,44 +12,40 @@
 
 import { Link } from "react-router";
 import { coverStyle } from "../lib/cover";
-import { SourceBadge } from "./Badge";
-import type { AgentSource } from "../lib/agents";
 
-export interface CategoryHeroProps {
+export interface SubcategoryHeroProps {
   label: string;
-  /** Eyebrow text (e.g. the parent category of a subcategory). */
+  /** Eyebrow text (e.g. the parent subcategory of a subcategory). */
   eyebrow: string;
-  /** If passed, the eyebrow is a link to the parent category (breadcrumb ‹). */
+  /** If passed, the eyebrow is a link to the parent subcategory (breadcrumb ‹). */
   parentTo?: string | null;
   tagline: string;
   count: number;
-  source: AgentSource;
   templateLabel: string;
   accent?: string | null;
-  /** Cover art seed (stable category id). */
+  /** Cover art seed (stable subcategory id). */
   coverSeed: string;
   live?: boolean;
   cta?: { to: string; label: string } | null;
 }
 
-export function CategoryHero({
+export function SubcategoryHero({
   label,
   eyebrow,
   parentTo,
   tagline,
   count,
-  source,
   templateLabel,
   accent,
   coverSeed,
   live,
   cta,
-}: CategoryHeroProps) {
+}: SubcategoryHeroProps) {
   const acc = accent ?? "var(--brand)";
 
   return (
     <section
-      aria-label={parentTo ? `Subcategory ${label}` : `Category ${label}`}
+      aria-label={parentTo ? `Subcategory ${label}` : `Subcategory ${label}`}
       className="relative isolate overflow-hidden rounded-2xl shadow-[var(--elev-hero)]"
     >
       {/* Abstract cover. */}
@@ -109,7 +105,6 @@ export function CategoryHero({
             <span className="rounded-full bg-black/35 px-2.5 py-1 text-xs font-semibold text-white/80 backdrop-blur-md">
               {templateLabel}
             </span>
-            <SourceBadge source={source} />
             {cta && (
               <Link
                 to={cta.to}

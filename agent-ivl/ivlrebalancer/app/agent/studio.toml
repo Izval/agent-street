@@ -23,7 +23,11 @@ default = "bsc-testnet"
 # (auto-reclaimed at 48h), not a production seller. `bag deploy` dispatches
 # on this; it records [deploy.platform] (slug/deployment_id/invoke_url)
 # post-deploy. Absent ⇒ self (deploy to your own cloud via [stack].runtime).
-destination = "platform"
+# Self-deploy: registramos la identidad ERC-8004 PERMANENTE desde nuestra propia
+# wallet fondeada (`bag erc8004 register` self-pays), no vía el trial gestionado de
+# 48h. El deploy gestionado (A2A hosting) queda como paso opcional posterior:
+# reactivar poniendo destination = "platform" antes de `bag deploy agent`.
+# destination = "platform"
 # Artifact channel: 'zip' (evm-local default — managed runtime, no Docker)
 # or 'container' (local Docker build → brokered ECR; forced for twak).
 platform_artifact = "zip"
@@ -36,6 +40,7 @@ kind = "evm-local"
 signer = "local"
 keystore_dir = "../../.studio/wallets"
 # address = "0x..."   # filled by `bag wallet new`
+address = "0xa1Fe55DCf41c1D3805Aad41D4aD1C9E1E06F06f1"
 
 [llm]
 provider = "anthropic"
@@ -59,3 +64,10 @@ auto_settle = false                            # opt-in: detect dispute-window-e
 # does NOT survive deploy. Path from STORAGE_LOCAL_PATH.
 kind = "local"
 
+[identity]
+endpoint = "https://ivl.onrender.com"
+registered_at = "2026-09-02T16:56:24.901714+00:00"
+agent_id = 2055
+# NOTE: this holds the most recent 8004 write for agent 2055 — the update-endpoint tx,
+# not the original register tx. Owner/signer of the identity is 0xa1Fe55…06f1.
+last_register_tx = "0x345aee64ae09f59d2d2e3816ab55dbbd47715ab8e406c0b6a56265e538312a2b"

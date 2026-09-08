@@ -7,8 +7,8 @@ compatibility_date = "2026-08-17"
 #   wrangler kv namespace create HIRES_KV   → pega el id devuelto aquí.
 [[kv_namespaces]]
 binding = "HIRES_KV"
-id = "hires_kv_local_placeholder_0000000000"
-preview_id = "hires_kv_local_placeholder_0000000000"
+id = "1155928dc3de4ba585a4c3517064ffa5"
+preview_id = "1155928dc3de4ba585a4c3517064ffa5"
 
 [vars]
 ALLOWED_ORIGIN = "*"
@@ -24,10 +24,18 @@ HIRE_PRICE_BASE = "100000000000000000"
 EXPLORER_BASE = "https://testnet.bscscan.com"
 # 8004-proxy para resolver la wallet de cobro del agente (payTo del quote).
 PROXY_8004_URL = "https://agent-street-8004-proxy.zevlat.workers.dev"
-# Flagship IVL Rebalancer: seed curado (no vive en 8004scan). Su wallet de COBRO
-# (dirección pública, no una llave) para habilitarlo como listing pagable de verdad.
-FLAGSHIP_AGENT_ID = "ivl-rebalancer"
-FLAGSHIP_PAYTO = "0x6D19d43fC2cd226B135ED5f9F82b366AC864b703"
+# No FLAGSHIP override (CLAUDE.md §2): every listing — IVL included — resolves its
+# payout wallet generically from its on-chain 8004scan record. IVL is hired through
+# its real on-chain agent, not a seed-injected payTo.
+# Contrato KeyStore de Altana en chain 97 (manage flow · sesiones). Dirección
+# PÚBLICA del contrato (no una llave) para el link "ver en el keystore explorer".
+ALTANA_KEYSTORE = "0x6b8361C29d05D498b1a12B54A37310f94171E94A"
+
+# Service binding al 8004-proxy (composición worker-a-worker en la misma cuenta;
+# un fetch por *.workers.dev haría loopback/404). Local dev cae al fetch de PROXY_8004_URL.
+[[services]]
+binding = "PROXY_8004"
+service = "agent-street-8004-proxy"
 
 # Sin secrets: el usuario firma/paga desde su propia wallet (client-pays). Este
 # worker solo verifica onchain vía RPC público — no custodia claves.

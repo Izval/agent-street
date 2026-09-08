@@ -10,28 +10,41 @@
 import type { AgentDetail } from "./contracts";
 import { createAgentsClient } from "./agents";
 import { createOnchainClient, deriveMetrics } from "./onchain";
-import { aisleOf, categoryTemplate } from "./taxonomy";
+import { categoryOf, subcategoryTemplate } from "./taxonomy";
 
 export interface DetailEnv {
   proxyUrl: string;
   indexerUrl: string;
   signal?: AbortSignal;
+  /** Service bindings (same-account worker-to-worker; see the lib clients). */
+  proxyFetcher?: Fetcher;
+  indexerFetcher?: Fetcher;
 }
 
 export async function loadAgentDetail(
   env: DetailEnv,
   id: string,
+  /** BSC chain to resolve against: 56 (mainnet, default) or 97 (testnet). */
+  chain?: number,
 ): Promise<AgentDetail | null> {
-  const agents = createAgentsClient({ baseUrl: env.proxyUrl, signal: env.signal });
-  const onchain = createOnchainClient({ baseUrl: env.indexerUrl, signal: env.signal });
+  const agents = createAgentsClient({
+    baseUrl: env.proxyUrl,
+    signal: env.signal,
+    fetcher: env.proxyFetcher,
+  });
+  const onchain = createOnchainClient({
+    baseUrl: env.indexerUrl,
+    signal: env.signal,
+    fetcher: env.indexerFetcher,
+  });
 
-  const raw = await agents.getDetail(id);
+  const raw = await agents.getDetail(id, chain);
   if (!raw) return null;
 
   const { reputation, services, ...agent } = raw;
-  const category = agent.category;
-  const aisle = category ? aisleOf(category) : null;
-  const template = categoryTemplate(category);
+  const subcategory = agent.subcategory;
+  const category = subcategory ? categoryOf(subcategory) : null;
+  const template = subcategoryTemplate(subcategory);
 
   // Wallet to index: the agent's, or failing that, the owner's.
   const wallet = agent.agentWallet ?? agent.ownerAddress ?? null;
@@ -43,8 +56,8 @@ export async function loadAgentDetail(
 
   return {
     agent,
-    aisle,
     category,
+    subcategory,
     template,
     portfolio,
     metrics: deriveMetrics(portfolio, trades),

@@ -58,11 +58,11 @@ function Block({ title, code }: { title: string; code: string }) {
 }
 
 const TOOLS: Array<{ name: string; desc: string; phase: string }> = [
-  { name: "search_agents", desc: "Discover agents by category / free-text, with real 8004scan reputation.", phase: "Explore" },
+  { name: "search_agents", desc: "Discover agents by subcategory / free-text, with real 8004scan reputation.", phase: "Explore" },
   { name: "get_agent", desc: "Full detail: reputation dimensions, services, x402 / ERC-8183 support.", phase: "Evaluate" },
   { name: "compare_agents", desc: "Rank 2–5 agents by a metric and pick a winner with a reason.", phase: "Decide" },
-  { name: "list_categories", desc: "The marketplace categories (id + label), core ones included.", phase: "Explore" },
-  { name: "list_skills", desc: "Composable ERC-8183 / Altana skills, optionally by category.", phase: "Explore" },
+  { name: "list_categories", desc: "The marketplace subcategories (id + label), core ones included.", phase: "Explore" },
+  { name: "list_skills", desc: "Composable ERC-8183 / Altana skills, optionally by subcategory.", phase: "Explore" },
   { name: "get_hire_quote", desc: "The x402 payment challenge (payTo, asset, amount). Does not move money.", phase: "Hire" },
   { name: "hire_agent", desc: "Submit your payment txHash; the marketplace verifies it on-chain.", phase: "Hire" },
   { name: "list_my_hires", desc: "The agents a wallet has hired, with tx + explorer links.", phase: "Manage" },
@@ -101,7 +101,7 @@ export default function ForAgents({ loaderData }: Route.ComponentProps) {
       jsonrpc: "2.0",
       id: 2,
       method: "tools/call",
-      params: { name: "search_agents", arguments: { category: "rebalancing", limit: 5 } },
+      params: { name: "search_agents", arguments: { subcategory: "rebalancing", limit: 5 } },
     },
     null,
     2,
@@ -121,6 +121,20 @@ export default function ForAgents({ loaderData }: Route.ComponentProps) {
           discover, evaluate, hire and manage any listed ERC-8004 agent through one
           Model Context Protocol endpoint. No scraping, no human in the loop.
         </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Link
+            to="/docs/for-agents"
+            className="inline-flex min-h-[32px] items-center rounded-[999px] border border-border px-3.5 text-[13px] font-semibold text-text-2 transition-colors hover:border-brand hover:text-text"
+          >
+            Full reference in the docs →
+          </Link>
+          <Link
+            to="/docs/mcp-tools"
+            className="inline-flex min-h-[32px] items-center rounded-[999px] border border-border px-3.5 text-[13px] font-semibold text-text-2 transition-colors hover:border-brand hover:text-text"
+          >
+            MCP tools reference →
+          </Link>
+        </div>
       </header>
 
       {/* Endpoint + connect */}

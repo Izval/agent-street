@@ -1,127 +1,99 @@
 # agent-ivl — IVL Rebalancer (BNBAgent SDK)
 
-Agente ERC-8004 que lee el rango LP en vivo del motor IVL (`api.zvlint.com/v1/ivl/ticks`)
-y **abre / mantiene / resetea** una posición PancakeSwap **v3** en BSC testnet. Es el flagship
-del marketplace y cubre el bounty PancakeSwap. Ver [`../docs/roadmap.md`](../docs/roadmap.md) §4b.
+ERC-8004 agent that reads a live LP range from the IVL engine (`api.zvlint.com/v1/ivl/ticks`) and
+**opens / holds / widens / resets** a PancakeSwap **v3** position on BSC testnet. It is the marketplace
+flagship and covers the PancakeSwap bounty. See [`../docs/roadmap.md`](../docs/roadmap.md) §4b and the
+on-chain evidence in [`../reports/pancakeswap-lp.md`](../reports/pancakeswap-lp.md).
 
 ## Layout
 
 ```
 agent-ivl/
-├── .venv/                     # venv del CLI `bag` (Python 3.12) — gitignored
-├── requirements*.txt          # deps del CLI bag
-└── ivlrebalancer/             # ⬅ PROYECTO DEL AGENTE (scaffold `bag init`, workspace SDK)
-    ├── studio.toml            # config del workspace
-    ├── .studio/               # keystore + .env.local (SECRETOS) — gitignored
-    └── app/agent/             # el Agente (único firmante, capa de valor)
-        ├── main.py            # entrypoint A2A (instrucción = IVL Rebalancer)
-        ├── seller_core.py     # lógica seller ERC-8183 (negotiate / notify_funded)
-        ├── signing.py         # TODA la firma (código fijo, nunca un tool LLM)
-        ├── tools.py           # tools READ-ONLY del LLM (incl. ivl_rebalance_plan)
-        ├── ivl_client.py      # ⬅ cliente del motor IVL (httpx)
-        ├── pancake_v3.py      # ⬅ ejecución LP v3 (mint + orientación de ticks)
-        ├── rebalance.py       # ⬅ orquestador: IVL → decisión → dry-run/execute + CLI
-        └── .venv/             # venv del agente (google-adk, web3…) — gitignored
+├── .venv/                     # `bag` CLI venv (Python 3.12) — gitignored
+├── requirements*.txt          # bag CLI deps
+└── ivlrebalancer/             # ⬅ AGENT PROJECT (`bag init` scaffold, SDK workspace)
+    ├── studio.toml            # workspace config
+    ├── .studio/               # keystore + .env.local (SECRETS) — gitignored
+    └── app/agent/             # the Agent (sole signer, value layer)
+        ├── main.py            # A2A entrypoint (instruction = IVL Rebalancer)
+        ├── seller_core.py     # ERC-8183 seller logic (negotiate / notify_funded)
+        ├── signing.py         # ALL signing (fixed code, never an LLM tool)
+        ├── tools.py           # READ-ONLY LLM tools (incl. ivl_rebalance_plan)
+        ├── ivl_client.py      # ⬅ IVL engine client (httpx)
+        ├── pancake_v3.py      # ⬅ v3 LP execution (mint + tick orientation)
+        ├── capital.py         # ⬅ capital prep (wrap tBNB→WBNB, swap WBNB→USDT)
+        ├── rebalance.py       # ⬅ orchestrator: IVL → decision → dry-run/execute + CLI
+        └── .venv/             # agent venv (google-adk, web3, httpx…) — gitignored
 ```
 
-Los tres módulos `⬅` son el trabajo de la **Fase 1** (rebalanceo IVL→LP v3).
+## What the agent does
 
-## Qué hace el agente
+1. **Reads IVL** (`ivl_client.py`): `GET /v1/ivl/ticks?pair=BNB-USDT` → `tickLower/tickUpper`,
+   `tickSpacing`, `feeTier` and `decision.action` (`open_or_hold` / `withdraw_or_widen` / `reset`).
+2. **Executes v3 LP** (`pancake_v3.py`): encodes `NonfungiblePositionManager.mint(MintParams{…})` with
+   those ticks and signs with the SDK `EVMWalletProvider` (the agent is the sole signer).
+3. **Orchestrates** (`rebalance.py`): maps the IVL action to an intent (mint / rewiden / reset), runs a
+   **dry-run** (`eth_call`, spends nothing) or **executes**, and produces the seller deliverable manifest.
+4. The read-only skill `ivl_rebalance_plan` is registered as an LLM tool in `tools.py`; **signing/broadcast**
+   (`rebalance.execute_rebalance`) is **fixed code, never a tool** — money never passes through the LLM.
 
-1. **Lee IVL** (`ivl_client.py`): `GET /v1/ivl/ticks?pair=BNB-USDT` → `tickLower/tickUpper`,
-   `tickSpacing`, `feeTier` y `decision.action` (`open_or_hold` / `withdraw_or_widen` / `reset`).
-2. **Ejecuta LP v3** (`pancake_v3.py`): encodea `NonfungiblePositionManager.mint(MintParams{…})`
-   con esos ticks y lo firma con el `EVMWalletProvider` del SDK (el agente = único firmante).
-3. **Orquesta** (`rebalance.py`): mapea la acción IVL a una intención (mint / rewiden / reset),
-   hace **dry-run** (`eth_call`, sin gastar) o ejecuta, y produce el manifiesto que entrega el seller.
-4. La skill de solo-lectura `ivl_rebalance_plan` está registrada como tool del LLM en `tools.py`;
-   la **firma/broadcast** (`rebalance.execute_rebalance`) es **código fijo, nunca un tool** — igual
-   que `signing.py`: el dinero jamás pasa por el LLM.
+> **No LLM by default (decision 2026-08-18):** the seller deliverable is DETERMINISTIC (the plan + the tx),
+> not prose. The `run_work` hook (`main._run_rebalance`) calls `plan_rebalance` and returns the manifest —
+> it invokes **no LLM**. So `bag dev` needs **no `ANTHROPIC_API_KEY`** and spends no tokens/$U.
 
-> **Sin LLM por defecto (decisión 18-ago-2026):** el deliverable del seller es DETERMINISTA (el
-> plan + la tx), no prosa. El hook `run_work` (`main._run_rebalance`) llama a `plan_rebalance` y
-> devuelve el manifiesto — **no invoca ningún LLM**. Por eso `bag dev` **no requiere
-> `ANTHROPIC_API_KEY`** ni gasta tokens/$U. `build_model()` quedó **perezoso** (`_get_runner`): el
-> LLM sigue disponible como opción (explicación en lenguaje natural) pero apagado por defecto.
+## Status — LIVE on BSC testnet (chain 97)
 
-## Verificación local (hecha, sin gastar tBNB)
+- **ERC-8004 identity:** registered, **agent id 2055**, owner/signer **`0xa1Fe55…06f1`**. A2A endpoint
+  live at `https://ivl.onrender.com` (`/.well-known/agent.json`, skills `negotiate` / `notify_funded`).
+- **PancakeSwap v3 position:** **live and in-range.** Current tokenId **37197**, pool
+  `0x2dbB5a4c…` (BNB-USDT 0.05%), range ticks `[-23580, -22950]` straddling the live pool tick,
+  two-sided, earning fees. A full **rewiden** cycle (decrease + collect → re-mint wider) has run on-chain
+  (prior tokenId 37142 → 37197). All tx hashes + a verify-it-yourself guide:
+  [`../reports/pancakeswap-lp.md`](../reports/pancakeswap-lp.md).
 
-Dry-run del mint contra el pool real de BSC testnet:
+> **Anchor-to-live-tick (why in-range).** IVL emits the *absolute* optimal range for the real BNB price
+> (~US$700). The BSC-*testnet* pool is synthetically mispriced (live tick ≈ -23265 ≈ 10 USDT/BNB), so on
+> chain 97 the agent preserves the IVL **width** and centers it on the live tick — in-range and two-sided
+> by construction, not a single-sided artifact. On mainnet the absolute IVL ticks are used directly.
+
+## Wallets — do not confuse them
+
+- **Agent signer/owner:** **`0xa1Fe55DCf41c1D3805Aad41D4aD1C9E1E06F06f1`** — the keystore in
+  `.studio/wallets/`, set as `address` in `studio.toml [wallet]`. This is the ONLY signer; it owns the
+  8004 identity (agent 2055) and the v3 position (37197). `bag wallet show` must print `0xa1Fe55…06f1`.
+- **User funding wallet** (`0xf634…4c1e`): a *separate* wallet the user funds from — **not** the agent
+  wallet. Never set it as the agent's `studio.toml` address.
+
+## Run / operate
 
 ```bash
 cd ivlrebalancer/app/agent
-./.venv/bin/python rebalance.py --pair BNB-USDT          # resumen legible
-./.venv/bin/python rebalance.py --pair BNB-USDT --json   # reporte completo
+./.venv/bin/python capital.py balances                              # tBNB / WBNB / USDT
+./.venv/bin/python rebalance.py --pair BNB-USDT --json              # read-only plan + dry-run
+./.venv/bin/python rebalance.py --pair BNB-USDT --execute --cap-base 0.02   # SIGNS + broadcasts (gated by keystore + WALLET_PASSWORD)
 ```
 
-Resultado verificado (18-ago-2026):
-- IVL en vivo: score 57, acción `withdraw_or_widen`.
-- Pool `WBNB/USDT fee=500` (`0x2dbB5a4c…`) encontrado; `tickSpacing=10`.
-- **Orientación reconciliada**: IVL da ticks `+63970/+64110` (BNB en USDT); como `USDT < WBNB`
-  por address, el pool tiene `token0=USDT` ⇒ ticks on-chain `[-64110, -63970]` (`inverted=True`).
-- `eth_call` revierte con `STF` (sin balance) → **el contrato decodificó el calldata** ⇒
-  `encoding_valid=True`. Round-trip de decodificación del mint: OK.
+`execute_rebalance` is fully implemented (approve→mint; decrease+collect[+burn]→mint for rewiden/reset),
+gated by credentials (it signs with `get_wallet()` and requires WBNB/USDT balance). The v3 mint spends
+**WBNB/USDT** (ERC20), not native tBNB — `capital.py prepare` wraps tBNB→WBNB and buys USDT in the pool.
 
-> ⚠ **Nota de testnet:** el pool de testnet está **mal-preciado** (tick actual ~-24124 ⇒ ~11 USDT/BNB)
-> vs el precio real de IVL (~600). Por eso `in_range=False` en testnet: el rango real de IVL no
-> solapa el tick sintético del pool de testnet. El **mecanismo** (encoding+orientación+mint) queda
-> probado; la **evidencia de fees** (bounty PancakeSwap) sale del backtest sobre datos reales
-> (Fase 3, `third_city/skills/ivl/scripts`), no del pool de juguete de testnet.
+### On-chain tx runbook (first-time setup — already done for agent 2055)
 
-Direcciones BSC testnet (chainId 97) verificadas en vivo — en `pancake_v3.RebalancerConfig`:
-`V3Factory 0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865` · `NPM 0x427bF5b37357632377eCbEC9de3626C71A5396c1`
-· `WBNB 0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd` · `USDT 0x337610d27c682E347C9cD60BD4b3b107C9d34dDd`.
+1. Import the wallet key (hidden prompt; never pasted inline):
+   `export WALLET_PASSWORD='<strong>'` then `(cd app/agent && bag wallet new --private-key)`;
+   confirm `bag wallet show` prints `0xa1Fe55…06f1`; set that same address in `studio.toml [wallet]`.
+2. *(Optional)* 8004scan Pro API key (form: https://forms.gle/jQevEPCAacBXaKG79) → `.studio/.env.local`.
+   The proxy works anonymously; the key only raises the rate limit.
+3. Register the on-chain identity: `(cd app/agent && bag erc8004 register)` → appears on 8004scan.
+4. Fund + prepare capital, then execute the rebalance (see commands above).
 
-`bag doctor`: `network reachable` PASS, `framework runtime importable (adk)` PASS. Los WARN
-restantes son exactamente los pasos de credenciales de abajo.
+> **Managed `bag deploy` caveat:** the managed path transmits the private key to the operator's Secrets
+> Manager — for that path use a **throwaway** wallet, never the funded agent wallet. Current `studio.toml`
+> keeps `[deploy].destination` self (commented), so the key stays local. The live A2A endpoint runs on
+> Render, not the managed platform.
 
-## ⛔ Handoff — pasos bloqueados por credenciales (los haces tú)
+## CLI environment
 
-Todo lo anterior corre en local sin gastar nada. Para la tx onchain (requisito duro del hackathon)
-falta **importar la clave** de tu wallet (el agente firma con ella) y sacar la API key 8004scan Pro.
-**Sin `ANTHROPIC_API_KEY`** — el seller es determinista (ver nota arriba).
-
-Wallet en uso: **`0xf63474d85aa7ea5f7d7969468723a0e635064c1e`** (ya fondeada). Desde `agent-ivl/` con el
-venv del CLI activo (`source .venv/bin/activate`), dentro de `ivlrebalancer/`:
-
-1. **Importar tu clave** (nunca se pega inline ni se comparte; prompt oculto):
-   ```bash
-   export WALLET_PASSWORD='<elige-uno-fuerte>'          # bag lo lee del shell; no se escribe a disco
-   (cd app/agent && bag wallet new --private-key)       # prompt oculto → pega la clave localmente
-   (cd app/agent && bag wallet show)                    # debe imprimir 0xf634…4c1e
-   ```
-   Luego fijar `address = "0xf63474d85aa7ea5f7d7969468723a0e635064c1e"` en `studio.toml [wallet]`
-   (ancla anti-drift). Faucet **no hace falta** (ya tiene fondos; verifica con `bag wallet balance`).
-   > ⚠ La wallet ya fondeada sirve para **local + `erc8004 register`** (la clave se queda en tu máquina).
-   > Para el **`bag deploy` gestionado**, el SDK **transmite la clave** al operador → usa una **throwaway**.
-2. **API key 8004scan Pro** (form: https://forms.gle/jQevEPCAacBXaKG79) → `.studio/.env.local`
-   (gitignored). *Opcional:* el proxy funciona anónimo; la key solo sube el rate-limit.
-3. **Identidad onchain (primera tx, requisito duro):**
-   ```bash
-   (cd app/agent && bag erc8004 register)               # aparece en 8004scan
-   ```
-4. **Correr el agente en local** (necesita 1; **no** necesita key de LLM):
-   ```bash
-   (cd app/agent && ./.venv/bin/bag dev)                # usa el venv del agente para que las deps casen
-   ```
-5. **Ejecutar el rebalanceo real** (con wallet fondeada): `rebalance.execute_rebalance` ya está
-   **implementado** (approve→mint; y decrease+collect[+burn]→mint para rewiden/reset). Gated: firma con
-   `get_wallet()` y exige saldo. Dispara por CLI:
-   ```bash
-   # El mint v3 gasta WBNB/USDT (ERC20), NO tBNB nativo. Primero envuelve tBNB→WBNB
-   # (deposit() en el contrato WBNB 0xae13…a7cd) y consigue algo de USDT testnet.
-   (cd app/agent && ./.venv/bin/python rebalance.py --pair BNB-USDT --execute --cap-base 0.02)
-   # → { steps:{approvals,mint_tx}, token_id, explorer: testnet.bscscan.com/tx/… }
-   ```
-   > ⚠ El pool de testnet está mal-preciado (ver nota arriba): la posición saldrá **single-sided /
-   > out-of-range**. El **mecanismo** (approve+mint+orientación) queda probado onchain con un tx real
-   > verificable; la **evidencia de fees** (bounty PancakeSwap) sale del `reports/` sobre datos reales.
-6. **Deploy gestionado — AL FINAL, cerca del judging:** `bag deploy prepare` → `bag platform login`
-   + `bag deploy agent`. ⚠ **Arranca el reloj de 48h del trial** — no lo dispares antes de tener todo listo.
-   ⚠ Recuerda: para el deploy gestionado usa una wallet **throwaway** (no la fondeada real).
-
-## Entorno del CLI (ya hecho)
-
-- **Python 3.12** (Homebrew) + venv en `.venv/`. `pip install -r requirements.txt` → `bnbagent-studio 0.0.5`
-  (CLI **`bag`**). El agente tiene su **propio** venv en `app/agent/.venv` (google-adk, web3, httpx…),
-  creado con `python -m venv app/agent/.venv && app/agent/.venv/bin/pip install -e ./app/agent`.
+- **Python 3.12** (Homebrew) + venv in `.venv/`. `pip install -r requirements.txt` → `bnbagent-studio`
+  (CLI **`bag`**). The agent has its **own** venv at `app/agent/.venv` (google-adk, web3, httpx…),
+  created with `python -m venv app/agent/.venv && app/agent/.venv/bin/pip install -e ./app/agent`.

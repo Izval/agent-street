@@ -23,12 +23,40 @@ invertidos. :func:`orient_ticks` lo reconcilia leyendo ``pool.token0()``.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from web3 import Web3
 
 from ivl_client import IvlTicks
+
+
+def load_agent_env() -> bool:
+    """Carga ``.studio/.env.local`` en el entorno (como hace el CLI ``bag``).
+
+    Los scripts de firma standalone (``rebalance.py --execute``, ``capital.py``) no
+    pasan por ``bag``, así que ``get_wallet()`` no vería ``WALLET_PASSWORD``. Buscamos
+    ``.studio/.env.local`` subiendo desde este módulo y lo cargamos SIN pisar variables
+    ya presentes en el entorno. Devuelve True si encontró y cargó el archivo.
+    """
+    here = Path(__file__).resolve()
+    for parent in [here.parent, *here.parents]:
+        env_path = parent / ".studio" / ".env.local"
+        if env_path.is_file():
+            try:
+                from dotenv import load_dotenv
+                load_dotenv(env_path, override=False)
+            except Exception:  # noqa: BLE001 — fallback: parser mínimo KEY=VALUE
+                for line in env_path.read_text().splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, _, v = line.partition("=")
+                    os.environ.setdefault(k.strip(), v.strip())
+            return True
+    return False
 
 # --- Constantes de tick de Uniswap/Pancake v3 --------------------------------
 MIN_TICK = -887272
@@ -204,6 +232,54 @@ def orient_ticks(ivl: IvlTicks, pool_token0: str, config: RebalancerConfig, spac
     return OrientedTicks(tick_lower=lo_s, tick_upper=hi_s, inverted=inverted)
 
 
+def anchor_ticks_to_live(
+    ivl: IvlTicks, pool_token0: str, config: RebalancerConfig, spacing: int, pool_tick: int
+) -> OrientedTicks:
+    """Ancla el ANCHO del rango IVL alrededor del tick VIVO del pool (modo testnet).
+
+    Motivo (roadmap §Frente 2 · CLAUDE.md §6.2): los pools BNB-USDT de BSC testnet
+    están mal-priceados (cotizan BNB≈$11 vs ~$688 de mercado real) porque nadie los
+    arbitra. Mintear los ticks ABSOLUTOS de IVL ahí caería 100% fuera de rango →
+    posición single-sided sin fees, inútil para el bounty de PancakeSwap.
+
+    IVL sigue siendo el cerebro: aporta el ANCHO ``W = tickUpper - tickLower`` (su
+    geometría 2.5×ATR) y la decisión de rebalanceo. Aquí preservamos ese ancho y lo
+    centramos sobre el precio VIVO del pool ⇒ posición real, dentro de rango, dos
+    lados, que gana fees en testnet. En mainnet ``pool ≡ mercado``, así que se usa
+    :func:`orient_ticks` (ticks absolutos de IVL) — ver ``build_mint_plan(anchor_live)``.
+
+    El ancho es invariante a la orientación (una diferencia de ticks), así que se
+    trabaja directamente en el espacio de ticks del pool alrededor de ``pool_tick``,
+    sin negar/invertir. ``inverted`` se reporta solo para trazabilidad.
+    """
+    inverted = Web3.to_checksum_address(pool_token0) == Web3.to_checksum_address(config.quote_token)
+    width = abs(int(ivl.tick_upper) - int(ivl.tick_lower)) or spacing
+    half = width // 2
+    lo_s = _snap(pool_tick - half, spacing, up=False)
+    hi_s = _snap(pool_tick + (width - half), spacing, up=True)
+    if lo_s >= hi_s:
+        hi_s = lo_s + spacing
+    # Garantía dura de in-range: el tick vivo debe quedar ESTRICTAMENTE dentro.
+    if pool_tick <= lo_s:
+        lo_s = _snap(pool_tick - spacing, spacing, up=False)
+    if pool_tick >= hi_s:
+        hi_s = _snap(pool_tick + spacing, spacing, up=True)
+    return OrientedTicks(tick_lower=lo_s, tick_upper=hi_s, inverted=inverted)
+
+
+def base_price_in_quote(pool_tick: int, token0: str, config: RebalancerConfig) -> float:
+    """Precio VIVO de BASE en QUOTE (p.ej. USDT por BNB) derivado del tick del pool.
+
+    Raw price v3 = token1/token0 = ``1.0001**tick``. Si ``token0==base`` eso ya es
+    quote/base; si ``token0==quote`` se invierte. Usado para dimensionar el depósito
+    en modo anchor con el precio real del pool (no el de mercado de IVL).
+    """
+    token0 = Web3.to_checksum_address(token0)
+    if token0 == Web3.to_checksum_address(config.base_token):
+        return 1.0001 ** pool_tick
+    return 1.0001 ** (-pool_tick)
+
+
 # --- Construcción de la tx de mint -------------------------------------------
 @dataclass
 class MintPlan:
@@ -224,7 +300,14 @@ class MintPlan:
     deadline: int = 0
     pool_tick: int | None = None
     inverted: bool = False
+    anchored: bool = False  # True ⇒ ancho IVL anclado al tick vivo (testnet mal-priceado)
+    live_price: float | None = None  # precio vivo de BASE en QUOTE (derivado del pool)
     extra: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def in_range(self) -> bool:
+        """¿El tick vivo del pool cae dentro del rango a mintear? (dos lados/gana fees)."""
+        return self.pool_tick is not None and self.tick_lower <= self.pool_tick <= self.tick_upper
 
     def mint_params(self) -> tuple:
         return (
@@ -246,12 +329,18 @@ def build_mint_plan(
     config: RebalancerConfig = DEFAULT_TESTNET_CONFIG,
     deadline: int | None = None,
     slippage_min: bool = False,
+    anchor_live: bool | None = None,
 ) -> MintPlan:
-    """Lee el pool real, reorienta los ticks de IVL y arma el :class:`MintPlan`.
+    """Lee el pool real, orienta los ticks de IVL y arma el :class:`MintPlan`.
 
     ``amount_base_wei``/``amount_quote_wei`` son las cantidades de BASE (WBNB) y
     QUOTE (USDT); se mapean a amount0/amount1 según el orden del pool. ``deadline``
     por defecto lo pone el llamador (no usamos ``time`` aquí para tests deterministas).
+
+    ``anchor_live`` elige la estrategia de rango: ``True`` ⇒ ancla el ANCHO de IVL al
+    tick vivo del pool (:func:`anchor_ticks_to_live`, para el testnet mal-priceado);
+    ``False`` ⇒ ticks ABSOLUTOS de IVL (:func:`orient_ticks`, correcto en mainnet donde
+    pool≡mercado). ``None`` (default) ⇒ auto: anchor sii ``chain_id == 97`` (BSC testnet).
     """
     config = config.checksummed()
     recipient = Web3.to_checksum_address(recipient)
@@ -269,7 +358,13 @@ def build_mint_plan(
     slot0 = pool.functions.slot0().call()
     pool_tick = int(slot0[1])
 
-    oriented = orient_ticks(ivl, token0, config, spacing)
+    if anchor_live is None:
+        anchor_live = config.chain_id == 97  # BSC testnet ⇒ anclar por pools mal-priceados
+    if anchor_live:
+        oriented = anchor_ticks_to_live(ivl, token0, config, spacing, pool_tick)
+    else:
+        oriented = orient_ticks(ivl, token0, config, spacing)
+    live_price = base_price_in_quote(pool_tick, token0, config)
 
     # Mapear base/quote → amount0/amount1 según el orden real del pool.
     if token0 == config.base_token:
@@ -285,6 +380,7 @@ def build_mint_plan(
         amount1_min=amount1 if slippage_min else 0,
         recipient=recipient, deadline=deadline or 0,
         pool_tick=pool_tick, inverted=oriented.inverted,
+        anchored=anchor_live, live_price=live_price,
         extra={"tick_spacing": spacing},
     )
 
@@ -337,12 +433,15 @@ def build_tx(
     *,
     value: int = 0,
     gas_hint: str | None = None,
+    nonce: int | None = None,
 ) -> dict[str, Any]:
     """Arma una tx legacy lista para firmar (nonce/gas/gasPrice/chainId).
 
     Intenta ``estimate_gas``; si revierte (allowance/estado aún no listo) cae al tope
     de :data:`DEFAULT_GAS` para ``gas_hint``. ``value`` en wei (0 para ERC20; >0 solo si
-    algún día se usa el path nativo BNB).
+    algún día se usa el path nativo BNB). ``nonce`` explícito para secuencias multi-tx
+    (evita la carrera de nonce con RPCs públicos tras balanceador); si es ``None`` se lee
+    el nonce ``pending`` del nodo.
     """
     owner = Web3.to_checksum_address(owner)
     tx: dict[str, Any] = {
@@ -351,7 +450,7 @@ def build_tx(
         "data": data,
         "value": value,
         "chainId": config.chain_id,
-        "nonce": w3.eth.get_transaction_count(owner),
+        "nonce": nonce if nonce is not None else w3.eth.get_transaction_count(owner, "pending"),
         "gasPrice": w3.eth.gas_price,
     }
     try:
@@ -368,6 +467,39 @@ def send_tx(w3: Web3, wallet: Any, tx: dict[str, Any], *, timeout: float = 180.0
     h = w3.eth.send_raw_transaction(raw)
     w3.eth.wait_for_transaction_receipt(h, timeout=timeout)
     return h.hex() if isinstance(h, bytes) else str(h)
+
+
+class SequentialSender:
+    """Envía txs en secuencia con nonce gestionado LOCALMENTE.
+
+    Los RPC públicos de BSC testnet están tras un balanceador: dos requests seguidos
+    pueden pegarle a nodos distintos con vistas de nonce desfasadas ⇒ ``nonce too low``.
+    Leemos el nonce ``pending`` UNA vez y lo incrementamos localmente tras cada envío,
+    así toda una secuencia (approve→approve→mint, o wrap→mint-usdt) es determinista.
+    Cada ``send`` espera el recibo antes de devolver (el estado queda minado para el
+    siguiente paso). El agente sigue siendo el ÚNICO firmante.
+    """
+
+    def __init__(self, w3: Web3, wallet: Any, config: RebalancerConfig, owner: str) -> None:
+        self.w3 = w3
+        self.wallet = wallet
+        self.config = config
+        self.owner = Web3.to_checksum_address(owner)
+        self._nonce = w3.eth.get_transaction_count(self.owner, "pending")
+        self.last_receipt: Any = None  # recibo del último send (p.ej. para leer el tokenId minteado)
+
+    def send(self, to: str, data: str, *, value: int = 0, gas_hint: str | None = None,
+             gas: int | None = None, timeout: float = 180.0) -> str:
+        tx = build_tx(self.w3, self.config, self.owner, to, data,
+                      value=value, gas_hint=gas_hint, nonce=self._nonce)
+        if gas is not None:
+            tx["gas"] = gas
+        signed = self.wallet.sign_transaction(tx)
+        raw = signed["rawTransaction"] if isinstance(signed, dict) else signed.raw_transaction
+        h = self.w3.eth.send_raw_transaction(raw)
+        self.last_receipt = self.w3.eth.wait_for_transaction_receipt(h, timeout=timeout)
+        self._nonce += 1
+        return h.hex() if isinstance(h, bytes) else str(h)
 
 
 def _npm(w3: Web3, config: RebalancerConfig):
@@ -461,17 +593,22 @@ def size_amounts(
     *,
     cap_base_human: float = 0.02,
     cap_quote_human: float | None = None,
+    quote_price: float | None = None,
 ) -> tuple[int, int]:
     """Dimensiona el depósito (amount_base_wei, amount_quote_wei) acotado por el saldo real.
 
-    Tope conservador de flagship testnet: ``cap_base_human`` de BASE (WBNB) y su equivalente
-    en QUOTE al precio superior del rango IVL. Nunca deposita más de lo que hay en la wallet.
+    Tope conservador de flagship testnet: ``cap_base_human`` de BASE (WBNB) y su
+    equivalente en QUOTE. El precio para convertir se toma de ``quote_price`` (precio
+    VIVO del pool en modo anchor) o, si es ``None``, del techo del rango IVL
+    (``ivl.price_upper``, correcto en mainnet donde pool≡mercado). Nunca deposita más
+    de lo que hay en la wallet.
     """
     config = config.checksummed()
     base_dec = token_decimals(w3, config.base_token)
     quote_dec = token_decimals(w3, config.quote_token)
     if cap_quote_human is None:
-        cap_quote_human = cap_base_human * float(ivl.price_upper)
+        price = quote_price if quote_price is not None else float(ivl.price_upper)
+        cap_quote_human = cap_base_human * price
     cap_base_wei = int(cap_base_human * (10 ** base_dec))
     cap_quote_wei = int(cap_quote_human * (10 ** quote_dec))
     base_bal = token_balance(w3, config.base_token, owner)
@@ -479,12 +616,23 @@ def size_amounts(
     return min(cap_base_wei, base_bal), min(cap_quote_wei, quote_bal)
 
 
+def _norm_topic(t: Any) -> str:
+    """Normaliza un topic a hex 0x-prefijado en minúsculas.
+
+    web3.py v7 devuelve ``HexBytes.hex()`` SIN prefijo ``0x``; versiones previas lo
+    incluían. Normalizamos para comparar sin depender de la versión.
+    """
+    h = t.hex() if isinstance(t, (bytes, bytearray)) else str(t)
+    h = h.lower()
+    return h if h.startswith("0x") else "0x" + h
+
+
 def minted_token_id(receipt: Any, owner: str) -> int | None:
     """Extrae el tokenId minteado del recibo (evento ERC721 Transfer al owner)."""
     owner_topic = "0x" + Web3.to_checksum_address(owner)[2:].lower().rjust(64, "0")
     for log in getattr(receipt, "logs", []) or []:
-        topics = [t.hex() if isinstance(t, (bytes, bytearray)) else str(t) for t in log.get("topics", [])]
-        if len(topics) == 4 and topics[0].lower() == TRANSFER_TOPIC and topics[2].lower() == owner_topic:
+        topics = [_norm_topic(t) for t in log.get("topics", [])]
+        if len(topics) == 4 and topics[0] == TRANSFER_TOPIC.lower() and topics[2] == owner_topic:
             try:
                 return int(topics[3], 16)
             except ValueError:

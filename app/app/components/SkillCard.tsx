@@ -1,12 +1,12 @@
 /**
- * Skill card (DESIGN.md §5). Composable skills — provider + category.
+ * Skill card (DESIGN.md §5). Composable skills — provider + subcategory.
  * Steam-style hover: side flyout (portal) with full description + provider +
- * protocol + category.
+ * protocol + subcategory.
  */
 
 import { Link } from "react-router";
 import type { Skill } from "../lib/skills";
-import { CATEGORY_LABELS } from "../lib/categories";
+import { subcategoryLabel } from "../lib/taxonomy";
 import { Flyout, useHoverFlyout } from "./Flyout";
 
 export function SkillCard({ skill }: { skill: Skill }) {
@@ -34,7 +34,7 @@ export function SkillCard({ skill }: { skill: Skill }) {
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <span className="rounded-[999px] bg-surface-2 px-2 py-0.5 text-[11px] font-semibold text-text-2">
-            {CATEGORY_LABELS[skill.category]}
+            {subcategoryLabel(skill.subcategory)}
           </span>
           <span className="text-[11px] text-text-3">{skill.protocol}</span>
         </div>
@@ -60,7 +60,7 @@ export function SkillCard({ skill }: { skill: Skill }) {
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <span className="rounded-[999px] bg-surface-2 px-2 py-0.5 text-[11px] font-semibold text-text-2">
-            {CATEGORY_LABELS[skill.category]}
+            {subcategoryLabel(skill.subcategory)}
           </span>
           <span className="text-[11px] text-text-3">{skill.protocol}</span>
         </div>

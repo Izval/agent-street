@@ -1,18 +1,20 @@
 import { env } from "cloudflare:workers";
-import { useState } from "react";
-import { Link, useFetcher } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, useFetcher, useNavigate } from "react-router";
+import { agentHref } from "../lib/agents";
 import { useAccount, usePublicClient, useSendTransaction, useSwitchChain, useWriteContract } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 
 import type { Route } from "./+types/hire";
 import { loadAgentDetail } from "../lib/detail";
 import { createHireClient } from "../lib/x402";
+import { executeHire, getActiveSession, sessionCoversAgent } from "../lib/altana";
 import { createTrendingClient } from "../lib/trending";
 import type { HireReceipt } from "../lib/contracts";
 import { PAYMENT_CHAIN } from "../lib/wallet/config";
 import { AppShell } from "../components/AppShell";
 import { Card } from "../components/Card";
-import { SourceBadge, X402Badge } from "../components/Badge";
+import { X402Badge } from "../components/Badge";
 import { WalletButton } from "../components/WalletButton";
 
 export function meta(_: Route.MetaArgs) {
@@ -24,16 +26,21 @@ export async function loader({ request }: Route.LoaderArgs) {
   const agentId = url.searchParams.get("agent");
   if (!agentId) return { detail: null, quote: null };
 
+  // BSC chain to resolve against: 56 (mainnet, default) or 97 (testnet); clamp others → 56.
+  const chain = url.searchParams.get("chain") === "97" ? 97 : 56;
   const detail = await loadAgentDetail(
     {
       proxyUrl: env.PROXY_8004_URL,
       indexerUrl: env.ONCHAIN_INDEXER_URL,
+      proxyFetcher: env.PROXY_8004,
+      indexerFetcher: env.ONCHAIN_INDEXER,
     },
     agentId,
+    chain,
   );
   if (!detail) return { detail, quote: null };
 
-  const client = createHireClient({ payUrl: env.HIRE_X402_URL });
+  const client = createHireClient({ payUrl: env.HIRE_X402_URL, fetcher: env.HIRE_X402 });
   // REAL quote: first we probe the agent's own 402; if it doesn't speak x402, we fall
   // back to the marketplace facilitator's quote (listing pricing, honest).
   const endpoint = detail.services?.a2aEndpoint ?? null;
@@ -53,6 +60,7 @@ export async function action({ request }: Route.ActionArgs) {
   const acceptRaw = String(form.get("accept") ?? "");
   const txHash = String(form.get("txHash") ?? "");
   const from = String(form.get("from") ?? "") || null;
+  const sessionId = String(form.get("sessionId") ?? "") || null;
 
   if (!agentId || !acceptRaw || !txHash) {
     return { receipt: null as HireReceipt | null, error: "Payment data is missing." };
@@ -65,8 +73,8 @@ export async function action({ request }: Route.ActionArgs) {
     return { receipt: null as HireReceipt | null, error: "Invalid quote." };
   }
 
-  const hire = createHireClient({ payUrl: env.HIRE_X402_URL });
-  const paid = await hire.pay({ agentId, agentName, endpoint, accept, task, txHash, from });
+  const hire = createHireClient({ payUrl: env.HIRE_X402_URL, fetcher: env.HIRE_X402 });
+  const paid = await hire.pay({ agentId, agentName, endpoint, accept, task, txHash, from, sessionId });
 
   // Verification seam unavailable → honest PENDING receipt (no made-up tx).
   const receipt: HireReceipt = paid ?? {
@@ -83,7 +91,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   // A real "hire" = a payment settled onchain. Only then does it count as demand.
   if (receipt.status === "settled") {
-    await createTrendingClient({ baseUrl: env.ANALYTICS_URL }).event(agentId, "hire");
+    await createTrendingClient({ baseUrl: env.ANALYTICS_URL, fetcher: env.ANALYTICS }).event(agentId, "hire");
   }
 
   return { receipt, error: null as string | null };
@@ -170,7 +178,46 @@ function Receipt({ receipt }: { receipt: HireReceipt }) {
       {receipt.detail && (
         <p className="mt-3 text-center text-xs text-text-3">{receipt.detail}</p>
       )}
+      {receipt.deliverable && <Deliverable deliverable={receipt.deliverable} />}
     </Card>
+  );
+}
+
+// The work-product the hired agent returned. Rendered only when the agent's own
+// endpoint replied with one — otherwise the receipt stays payment-only (honest).
+function Deliverable({
+  deliverable,
+}: {
+  deliverable: NonNullable<HireReceipt["deliverable"]>;
+}) {
+  return (
+    <div className="mt-5 rounded-[8px] border border-up/40 bg-up/5 p-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-3">
+          Deliverable
+        </h3>
+        <span className="text-[10px] font-bold uppercase text-up">from agent</span>
+      </div>
+      <p className="mt-2 text-sm font-semibold text-text">{deliverable.title}</p>
+      {deliverable.body && (
+        <p className="mt-1 whitespace-pre-wrap text-sm text-text-2">{deliverable.body}</p>
+      )}
+      {deliverable.links && deliverable.links.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {deliverable.links.map((l) => (
+            <a
+              key={l.url}
+              href={l.url}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-[6px] border border-border px-3 py-1.5 text-xs font-semibold text-text transition-colors hover:border-brand"
+            >
+              {l.label} ↗
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -188,11 +235,25 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
   const { writeContractAsync } = useWriteContract();
   const { sendTransactionAsync } = useSendTransaction();
   const publicClient = usePublicClient();
+  const navigate = useNavigate();
 
   const [phase, setPhase] = useState<
-    "idle" | "switching" | "paying" | "confirming"
+    "idle" | "switching" | "paying" | "confirming" | "session"
   >("idle");
   const [error, setError] = useState<string | null>(null);
+  // Payment method: the single decision at hire — Direct (client-pays) or an
+  // Altana spend-capped session. Defaults to Direct.
+  const [method, setMethod] = useState<"direct" | "altana">("direct");
+  // Whether an active session already covers this agent (client-only; localStorage).
+  const [hasSession, setHasSession] = useState(false);
+  useEffect(() => {
+    if (isConnected && address && agent) {
+      const s = getActiveSession(address);
+      setHasSession(Boolean(s && sessionCoversAgent(s, agent.id)));
+    } else {
+      setHasSession(false);
+    }
+  }, [isConnected, address, agent]);
 
   const submitting = fetcher.state !== "idle";
   const busy = phase !== "idle" || submitting;
@@ -267,6 +328,52 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
     }
   }
 
+  // Altana path: hire under an active spend-capped session (no per-hire prompt).
+  // If none covers this agent, route to /manage to grant one first.
+  async function onHireWithSession() {
+    if (!agent || !quote) return;
+    setError(null);
+    if (!isConnected || !address) {
+      openConnectModal?.();
+      return;
+    }
+    const stored = getActiveSession(address);
+    if (!stored || !sessionCoversAgent(stored, agent.id)) {
+      navigate(`/manage?agent=${encodeURIComponent(agent.id)}`);
+      return;
+    }
+    try {
+      setPhase("session");
+      const { txHash } = await executeHire({
+        owner: address,
+        asset: quote.accept.asset,
+        payTo: quote.accept.payTo,
+        amountBase: quote.accept.maxAmountRequired,
+      });
+      setPhase("idle");
+      if (!txHash) {
+        setError("The session executed but no tx hash was returned.");
+        return;
+      }
+      fetcher.submit(
+        {
+          agentId: agent.id,
+          agentName: agent.name,
+          endpoint: detail?.services?.a2aEndpoint ?? "",
+          task: quote.task,
+          accept: JSON.stringify(quote.accept),
+          txHash,
+          from: address,
+          sessionId: stored.sessionPublicKey,
+        },
+        { method: "post" },
+      );
+    } catch (e) {
+      setError(humanizeError(e));
+      setPhase("idle");
+    }
+  }
+
   const buttonLabel =
     phase === "switching"
       ? "Switching to BSC testnet…"
@@ -281,11 +388,11 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
               : `Pay & hire · ${priceLabel}`;
 
   return (
-    <AppShell activeCategory={agent?.category ?? undefined}>
+    <AppShell activeSubcategory={agent?.subcategory ?? undefined}>
       <div className="mx-auto max-w-[720px]">
         <div className="py-2">
           <Link
-            to={agent ? `/agent/${encodeURIComponent(agent.id)}` : "/"}
+            to={agent ? agentHref(agent) : "/"}
             className="text-sm text-text-3 transition-colors hover:text-text"
           >
             ← {agent ? agent.name : "Marketplace"}
@@ -303,10 +410,9 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
               <div className="min-w-0">
                 <div className="font-semibold">{agent.name}</div>
                 <div className="mt-0.5 flex items-center gap-2">
-                  {agent.categoryLabel && (
-                    <span className="text-xs text-text-3">{agent.categoryLabel}</span>
+                  {agent.subcategoryLabel && (
+                    <span className="text-xs text-text-3">{agent.subcategoryLabel}</span>
                   )}
-                  <SourceBadge source={agent.source} />
                   {quote && <X402Badge />}
                 </div>
               </div>
@@ -314,7 +420,17 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
 
             {/* Receipt (after paying) or quote + payment */}
             {receipt ? (
-              <Receipt receipt={receipt} />
+              <>
+                <Receipt receipt={receipt} />
+                <div className="mt-3 text-center">
+                  <Link
+                    to="/manage"
+                    className="text-sm font-semibold text-brand hover:underline"
+                  >
+                    Manage sessions →
+                  </Link>
+                </div>
+              </>
             ) : (
               <Card className="mt-6 p-6">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-text-3">
@@ -348,24 +464,82 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
 
                 {canHire ? (
                   <>
-                    <button
-                      type="button"
-                      onClick={onPayAndHire}
-                      disabled={busy}
-                      className="mt-6 w-full rounded-[8px] bg-brand px-5 py-3 text-sm font-semibold text-bg transition-colors hover:bg-brand-bright disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {buttonLabel}
-                    </button>
-                    {wrongChain && (
-                      <p className="mt-3 text-center text-xs text-brand">
-                        Your wallet is on another network; we'll switch to BSC testnet when you pay.
-                      </p>
+                    {/* The one decision at hire: pay directly, or via an Altana session. */}
+                    <div className="mt-6 grid grid-cols-2 gap-2 rounded-[10px] border border-border p-1">
+                      <button
+                        type="button"
+                        onClick={() => setMethod("direct")}
+                        className={`rounded-[8px] px-4 py-2 text-sm font-semibold transition-colors ${
+                          method === "direct"
+                            ? "bg-surface-2 text-text"
+                            : "text-text-3 hover:text-text"
+                        }`}
+                      >
+                        Pay directly
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMethod("altana")}
+                        className={`rounded-[8px] px-4 py-2 text-sm font-semibold transition-colors ${
+                          method === "altana"
+                            ? "bg-surface-2 text-text"
+                            : "text-text-3 hover:text-text"
+                        }`}
+                      >
+                        Altana session
+                      </button>
+                    </div>
+
+                    {method === "direct" ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={onPayAndHire}
+                          disabled={busy}
+                          className="mt-4 w-full rounded-[8px] bg-brand px-5 py-3 text-sm font-semibold text-bg transition-colors hover:bg-brand-bright disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {buttonLabel}
+                        </button>
+                        {wrongChain && (
+                          <p className="mt-3 text-center text-xs text-brand">
+                            Your wallet is on another network; we'll switch to BSC testnet when you pay.
+                          </p>
+                        )}
+                        <p className="mt-3 text-center text-xs text-text-3">
+                          You pay, from your own wallet, the real transfer to the agent's
+                          wallet on BSC testnet. The marketplace verifies the tx onchain and
+                          issues the receipt — a hash is never made up.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={onHireWithSession}
+                          disabled={busy}
+                          className="mt-4 w-full rounded-[8px] bg-brand px-5 py-3 text-sm font-semibold text-bg transition-colors hover:bg-brand-bright disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {phase === "session"
+                            ? "Hiring via session…"
+                            : submitting
+                              ? "Verifying payment…"
+                              : !isConnected
+                                ? "Connect your wallet to hire"
+                                : hasSession
+                                  ? `Hire with session · ${priceLabel}`
+                                  : "Set up an Altana session →"}
+                        </button>
+                        <p className="mt-3 text-center text-xs text-text-3">
+                          {hasSession
+                            ? "Settled by your active session key within its spend cap — no new signature. "
+                            : "Grant a spend-capped session once (passkey), then hire within the cap without signing each time. "}
+                          <Link to="/manage" className="text-brand hover:underline">
+                            Manage sessions
+                          </Link>
+                          .
+                        </p>
+                      </>
                     )}
-                    <p className="mt-3 text-center text-xs text-text-3">
-                      You pay, from your own wallet, the real transfer to the agent's
-                      wallet on BSC testnet. The marketplace verifies the tx onchain and
-                      issues the receipt — a hash is never made up.
-                    </p>
                   </>
                 ) : (
                   <>

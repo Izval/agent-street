@@ -18,13 +18,31 @@
 		// el worker publica el quote (402) y VERIFICA la tx onchain (POST /v1/hire).
 		// Dev local: sobrescribe a http://localhost:8791 vía .dev.vars.
 		"HIRE_X402_URL": "https://agent-street-hire-x402.zevlat.workers.dev",
+		// Worker de portfolios (workers/portfolios): sets de agentes user-made +
+		// contadores de gamificación + afinidad "frequently hired together".
+		// Additive: la app funciona sin él (curated se resuelven app-side).
+		// Dev local: sobrescribe a http://localhost:8792 vía .dev.vars.
+		"PORTFOLIOS_URL": "https://agent-street-portfolios.zevlat.workers.dev",
 		// Agent-native surface (workers/mcp): the MCP endpoint an orchestrator agent
 		// connects to in order to discover, evaluate, hire and manage listed agents.
 		// Surfaced read-only in the UI (For Agents page + per-listing access panel).
 		"MCP_URL": "https://agent-street-mcp.zevlat.workers.dev",
 		// Registrar (services/registrar, FastAPI) — acuña identidad ERC-8004 testnet
-		// para el wizard "Create agent". ÚNICA pieza no-Cloudflare: debe apuntar a la
-		// instancia desplegada (uvicorn). Dev local: http://localhost:8080 vía .dev.vars.
-		"REGISTRAR_URL": "http://localhost:8080"
-	}
+		// para el wizard "Create agent". ÚNICA pieza no-Cloudflare: apunta a la
+		// instancia en Render (Docker web service). Dev local: sobrescribe con
+		// http://localhost:8080 vía .dev.vars. Hoy en DRY_RUN (sin TREASURY_PRIVATE_KEY).
+		"REGISTRAR_URL": "https://agent-street.onrender.com"
+	},
+	// Service bindings — same-account worker-to-worker composition. A plain fetch to
+	// these workers over *.workers.dev loops back to THIS app worker (which has no such
+	// route) and 404s, so server-side loaders route through these bindings instead. The
+	// *_URL vars above stay as the local-dev fallback (real external fetch, no binding).
+	// The app must keep working without them (seed fallback), so they are additive.
+	"services": [
+		{ "binding": "PROXY_8004", "service": "agent-street-8004-proxy" },
+		{ "binding": "ONCHAIN_INDEXER", "service": "agent-street-onchain-indexer" },
+		{ "binding": "ANALYTICS", "service": "agent-street-analytics" },
+		{ "binding": "HIRE_X402", "service": "agent-street-hire-x402" },
+		{ "binding": "PORTFOLIOS", "service": "agent-street-portfolios" }
+	]
 }

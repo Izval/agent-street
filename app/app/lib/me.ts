@@ -7,9 +7,10 @@
  * All server-side (/me loader), degrades to an honest empty if a source doesn't respond.
  */
 
+import { agentHref } from "./agents";
+
 // 8004scan Public API (same base the 8004-proxy worker uses). Public read.
 const SCAN_8004_BASE = "https://8004scan.io/api/v1/public";
-const SCAN_EXPLORER = "https://8004scan.io";
 
 // --- Hired (mirrors HireRecord from the hire-x402 worker) ---
 export interface HireRecord {
@@ -23,6 +24,8 @@ export interface HireRecord {
   explorerUrl: string | null;
   payTo: string;
   settledAt: string;
+  /** Set when this hire settled under a managed session (manage flow). */
+  sessionId?: string | null;
 }
 
 // --- Launched ---
@@ -33,8 +36,9 @@ export interface OwnedAgent {
   chainId: number;
   network: "mainnet" | "testnet";
   score: number | null;
-  /** Internal link (mainnet) or to the 8004scan explorer (testnet, not indexed by the proxy). */
+  /** Internal detail link; testnet agents carry `?chain=97` so the route resolves them. */
   href: string;
+  /** Always false now that the proxy resolves testnet too; kept for the /me renderer. */
   external: boolean;
 }
 
@@ -51,10 +55,14 @@ async function fetchHires(
   hireBaseUrl: string,
   address: string,
   signal?: AbortSignal,
+  fetcher?: Fetcher,
 ): Promise<HireRecord[]> {
   try {
     const url = `${hireBaseUrl.replace(/\/$/, "")}/v1/hires?address=${encodeURIComponent(address)}`;
-    const res = await fetch(url, { headers: { accept: "application/json" }, signal });
+    const doFetch: typeof fetch = fetcher
+      ? (fetcher.fetch.bind(fetcher) as typeof fetch)
+      : fetch;
+    const res = await doFetch(url, { headers: { accept: "application/json" }, signal });
     if (!res.ok) return [];
     const body = (await res.json()) as { hires?: HireRecord[] };
     return Array.isArray(body.hires) ? body.hires : [];
@@ -98,12 +106,10 @@ async function fetchOwned(
             chainId,
             network,
             score: r.total_score == null ? null : Number(r.total_score),
-            // The proxy only resolves mainnet (chain 56) in /agent/:id; testnet → explorer.
-            href:
-              chainId === 56
-                ? `/agent/${encodeURIComponent(id)}`
-                : `${SCAN_EXPLORER}/agents/${chainId}/${encodeURIComponent(id)}`,
-            external: chainId !== 56,
+            // The proxy resolves both mainnet (56) and testnet (97); testnet agents
+            // link to the internal detail page with ?chain=97 so it loads correctly.
+            href: agentHref({ id, name: String(r.name ?? "Unknown"), chainId }),
+            external: false,
           };
         })
     );
@@ -113,14 +119,14 @@ async function fetchOwned(
 }
 
 export async function loadMyAgents(
-  env: { hireUrl: string; signal?: AbortSignal },
+  env: { hireUrl: string; signal?: AbortSignal; hireFetcher?: Fetcher },
   address: string | null,
 ): Promise<MyAgents> {
   if (!address || !ADDR_RE.test(address)) {
     return { address: null, hires: [], launchedMainnet: [], launchedTestnet: [] };
   }
   const [hires, launchedMainnet, launchedTestnet] = await Promise.all([
-    fetchHires(env.hireUrl, address, env.signal),
+    fetchHires(env.hireUrl, address, env.signal, env.hireFetcher),
     fetchOwned(address, 56, env.signal),
     fetchOwned(address, 97, env.signal),
   ]);

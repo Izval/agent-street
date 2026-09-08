@@ -10,7 +10,7 @@
  */
 
 import type { Agent } from "./agents";
-import type { Aisle, Category, TemplateKind } from "./taxonomy";
+import type { Category, Subcategory, TemplateKind } from "./taxonomy";
 
 // ---------------------------------------------------------------- //
 // Trending by our own demand (WS Wave B) — views + hires that we
@@ -24,8 +24,8 @@ export interface TrendingRow {
   agentId: string; // token_id (for /agent/:id)
   name: string;
   imageUrl?: string | null;
-  category: Category | null;
-  categoryLabel: string | null;
+  subcategory: Subcategory | null;
+  subcategoryLabel: string | null;
   /** Count within the window (views or hires). */
   count: number;
   /** % vs previous window. null if there is no base to compare (shows "new"). */
@@ -34,6 +34,8 @@ export interface TrendingRow {
   rankDelta: number | null;
   /** Short series for the demand sparkline. */
   spark: number[];
+  /** Onchain-verified agent (8004scan). Undefined when the source doesn't say. */
+  verified?: boolean;
 }
 
 export interface TrendingResponse {
@@ -41,7 +43,52 @@ export interface TrendingResponse {
   metric: TrendingMetric;
   rows: TrendingRow[];
   updatedAt: string;
+  /**
+   * "demand" = first-party views + hires we count ourselves. "reputation" = a
+   * persistent fallback ranked by a real on-chain metric (8004scan) while demand
+   * is still accumulating — never presented as demand figures.
+   */
+  source: "demand" | "reputation";
+  /** For "reputation" rows: the on-chain metric used (e.g. "on-chain score", "reviews", "stars"). */
+  basisLabel?: string;
+}
+
+// ---------------------------------------------------------------- //
+// Usage over time (analytics worker /v1/series/:agentId) — first-party
+// demand (views + hires we count ourselves). Mirrors the worker output.
+// ---------------------------------------------------------------- //
+
+export interface UsageSeriesPoint {
+  ts: string; // ISO of the hourly bucket (UTC)
+  views: number;
+  hires: number;
+}
+
+export interface UsageSeries {
+  agentId: string;
+  window: TrendingWindow;
+  points: UsageSeriesPoint[];
+  updatedAt: string;
   source: "demand";
+}
+
+// ---------------------------------------------------------------- //
+// Recent hires of one agent (hire-x402 /v1/hires?agent=) — real settled
+// hires with tx hashes. Feeds the profile's "latest transactions".
+// ---------------------------------------------------------------- //
+
+export interface HireTx {
+  agentId: string;
+  agentName: string | null;
+  task: string | null;
+  amount: number | null;
+  assetSymbol: string | null;
+  network: string;
+  txHash: string;
+  explorerUrl: string | null;
+  payTo: string;
+  settledAt: string; // ISO
+  sessionId: string | null;
 }
 
 // ---------------------------------------------------------------- //
@@ -168,7 +215,8 @@ export interface AgentServices {
   skills: AgentSkill[];
   x402: boolean;
   erc8183: boolean;
-  /** true if the agent-card could be read live. */
+  /** true if the A2A endpoint responded live (agent-card fetched). Drives the
+   *  "Endpoint live" badge; false when there's no endpoint or it was unreachable. */
   cardLive: boolean;
 }
 
@@ -221,6 +269,18 @@ export interface HireQuote {
 
 export type HireStatus = "settled" | "pending" | "failed";
 
+/**
+ * Work-product an agent returns when hired. Generic: the marketplace dispatches the
+ * task to the listing's own published A2A endpoint and renders whatever comes back.
+ * Populated only from a real endpoint response; never fabricated.
+ */
+export interface HireDeliverable {
+  kind: "text" | "range" | "link" | "json";
+  title: string;
+  body: string;
+  links?: { label: string; url: string }[];
+}
+
 /** Receipt returned by the payment seam. No invented tx: txHash only if real. */
 export interface HireReceipt {
   status: HireStatus;
@@ -232,6 +292,68 @@ export interface HireReceipt {
   settledAt: string | null;
   /** Honest message for failed/pending. */
   detail?: string | null;
+  /** Deliverable returned by the hired agent's endpoint. Absent if none. */
+  deliverable?: HireDeliverable | null;
+}
+
+// ---------------------------------------------------------------- //
+// Managed sessions (manage flow · Altana account sessions)
+// A session is a scoped, time-bounded delegation with a per-token spend
+// cap + expiry, granted on-chain via the Altana account contract and
+// revocable in one tx. It lets a user hire under a cap without signing
+// each hire. Generic marketplace feature — works for any listing, not
+// coupled to any specific agent. Honesty (DESIGN.md v2 §18): tx hashes
+// are surfaced only when real; nullable otherwise.
+// ---------------------------------------------------------------- //
+
+export type SessionStatus = "active" | "expired" | "revoked";
+
+export type SpendPeriod =
+  | "minute"
+  | "hour"
+  | "day"
+  | "week"
+  | "month"
+  | "year";
+
+/** A per-token spending cap over a rolling period. */
+export interface SpendCap {
+  /** Token address, or null for the native asset (BNB). */
+  token: string | null;
+  /** Cap in base units of the token (string, not de-scaled). */
+  limitBase: string;
+  period: SpendPeriod;
+  /** Symbol for display ("USDT", "BNB"…). null if unknown. */
+  symbol?: string | null;
+  /** Decimals for de-scaling the cap for display. */
+  decimals?: number | null;
+}
+
+/** A managed session as surfaced by the marketplace (manage flow). */
+export interface Session {
+  /** Session key public key — the unique id and on-chain revocation handle. */
+  id: string;
+  /** The Altana smart-account this session can act on. */
+  walletAddress: string;
+  /** Per-token spend caps (enforced on-chain by the account validator). */
+  spend: SpendCap[];
+  /** Marketplace-level allowlist of agent ids. Empty = any listing. */
+  allowlist: string[];
+  /** Unix epoch seconds when the session expires. */
+  expiry: number;
+  network: string;
+  status: SessionStatus;
+  /** The grant tx (keystore-visible). null until confirmed on-chain. */
+  grantTxHash: string | null;
+  grantExplorerUrl: string | null;
+  /** The revoke tx, once revoked. */
+  revokeTxHash: string | null;
+  revokeExplorerUrl: string | null;
+  createdAt: string;
+  /** Spend used so far under this session (de-scaled, summed across hires). */
+  usedAmount: number | null;
+  /** Remaining under the first cap (de-scaled). null if not derivable. */
+  remainingAmount: number | null;
 }
 
 // ---------------------------------------------------------------- //
@@ -240,8 +362,8 @@ export interface HireReceipt {
 
 export interface AgentDetail {
   agent: Agent;
-  aisle: Aisle | null;
   category: Category | null;
+  subcategory: Subcategory | null;
   template: TemplateKind;
   /** Onchain (nullable if the indexer didn't respond / wallet empty). */
   portfolio: PortfolioResponse | null;

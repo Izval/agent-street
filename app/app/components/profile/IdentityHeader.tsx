@@ -1,6 +1,6 @@
 /**
- * IdentityHeader — the "résumé header": avatar, name, role headline, category
- * chip (aisle accent), owner/publisher, and status badges. Glass allowed here
+ * IdentityHeader — the "résumé header": avatar, name, role headline, subcategory
+ * chip (category accent), owner/publisher, and status badges. Glass allowed here
  * (DESIGN.md §17.1).
  */
 
@@ -9,15 +9,11 @@ import type { ProfileMeta } from "../../lib/profile";
 import { short } from "../../lib/profile";
 import {
   LiveBadge,
-  SourceBadge,
   TestnetBadge,
   VerifiedBadge,
   X402Badge,
 } from "../Badge";
-
-function initials(name: string) {
-  return name.slice(0, 2).toUpperCase();
-}
+import { Avatar } from "../Avatar";
 
 export function IdentityHeader({
   detail,
@@ -42,25 +38,25 @@ export function IdentityHeader({
       />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-4">
-          <span className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl bg-surface-2 text-lg font-bold text-text-2">
-            {agent.imageUrl ? (
-              <img src={agent.imageUrl} alt="" className="h-full w-full object-cover" />
-            ) : (
-              initials(agent.name)
-            )}
-          </span>
+          <Avatar
+            src={agent.imageUrl}
+            name={agent.name}
+            seed={agent.id}
+            accent={meta.accent}
+            size="h-16 w-16"
+            rounded="rounded-2xl"
+          />
           <div className="min-w-0">
             <h1 className="truncate text-2xl font-bold text-text">{agent.name}</h1>
             <div className="mt-0.5 text-sm font-medium" style={{ color: meta.accent }}>
               {meta.role}
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              {agent.categoryLabel && (
+              {agent.subcategoryLabel && (
                 <span className="rounded-[999px] bg-white/[0.06] px-2.5 py-0.5 text-xs font-semibold text-text-2">
-                  {agent.categoryLabel}
+                  {agent.subcategoryLabel}
                 </span>
               )}
-              <SourceBadge source={agent.source} />
               {agent.isVerified && <VerifiedBadge />}
               {agent.x402Supported && <X402Badge />}
               {typeof agent.rank === "number" && (

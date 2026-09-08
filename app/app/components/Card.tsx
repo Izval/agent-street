@@ -1,7 +1,7 @@
 /**
  * Card — reusable wrapper with border/radius (DESIGN.md §5, v2 §13).
  * `glass` variant (only large blocks/hero/overlays, never dense data cards).
- * `accent` paints a subtle top bar per aisle (no background → doesn't compete with the yellow).
+ * `accent` paints a subtle top bar per category (no background → doesn't compete with the yellow).
  */
 
 import type { CSSProperties, ReactNode } from "react";
@@ -14,7 +14,7 @@ export function Card({
   children,
 }: {
   glass?: boolean;
-  /** Accent token per aisle, e.g. `var(--accent-defi)`. */
+  /** Accent token per category, e.g. `var(--accent-trading)`. */
   accent?: string;
   className?: string;
   style?: CSSProperties;

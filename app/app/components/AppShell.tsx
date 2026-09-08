@@ -2,30 +2,38 @@
  * AppShell — top-bar marketplace layout (DESIGN.md v2/v3).
  *
  * Two-row sticky header (no left sidebar):
- *   Row 1 (options): logo · MegaMenu (7 aisles → shared mega-panel) · search · wallet.
+ *   Row 1 (options): logo · MegaMenu (7 categories → shared mega-panel) · search · wallet.
  *   Row 2 (novelties): persistent NoveltyBar — new-launch ticker + Build / How to hire.
  * Content spans the full width (max 1440px), freed from the old 260px rail.
  *
  * Mobile (<lg): the MegaMenu row collapses into a hamburger that opens a
- * full-screen drawer reusing the existing Sidebar tree (aisles → subcategories
+ * full-screen drawer reusing the existing Sidebar tree (categories → subcategories
  * + CTAs). SSR-safe: the drawer state starts closed; no window access on render.
  */
 
 import { useEffect, useState } from "react";
-import { Form, Link } from "react-router";
+import { Form, Link, useRouteLoaderData } from "react-router";
 import { MegaMenu } from "./MegaMenu";
 import { NoveltyBar } from "./NoveltyBar";
+import { Footer } from "./Footer";
+import { LaunchTicker, type LaunchItem } from "./LaunchTicker";
 import { Sidebar } from "./Sidebar";
 import { WalletButton } from "./WalletButton";
-import type { Aisle, Category } from "../lib/taxonomy";
+import { CommandPalette } from "./CommandPalette";
+import { ComparePill } from "./ComparePill";
+import type { Category, Subcategory } from "../lib/taxonomy";
 
 function Logo() {
   return (
     <Link to="/" className="flex shrink-0 items-center gap-2">
-      <span className="grid h-7 w-7 place-items-center rounded-full bg-brand font-bold text-bg">
-        A
-      </span>
-      <span className="hidden text-lg font-bold tracking-tight sm:inline">
+      <img
+        src="/logo.avif"
+        alt="Agent-Street"
+        width={32}
+        height={32}
+        className="h-8 w-8 rounded-lg"
+      />
+      <span className="hidden font-mono text-base font-bold uppercase tracking-[0.08em] sm:inline">
         Agent<span className="text-brand">-</span>Street
       </span>
     </Link>
@@ -34,17 +42,34 @@ function Logo() {
 
 export function AppShell({
   children,
-  activeAisle,
   activeCategory,
+  activeSubcategory,
   ticker,
+  agentCount,
+  network,
 }: {
   children: React.ReactNode;
-  activeAisle?: Aisle;
   activeCategory?: Category;
+  activeSubcategory?: Subcategory;
   /** Left slot of the novelties bar (e.g. the new-launches ticker). */
   ticker?: React.ReactNode;
+  /** Indexed-agent count for the novelties bar status cluster. */
+  agentCount?: number | null;
+  /** Network label for the status cluster (e.g. "BSC"). */
+  network?: string;
 }) {
   const [open, setOpen] = useState(false);
+
+  // The novelties feed + agent count are loaded once by the root loader so the
+  // ticker and status cluster persist on every route. A route may still pass
+  // its own `ticker`/`agentCount` to override (e.g. the richer home pool).
+  const rootData = useRouteLoaderData("root") as
+    | { total?: number | null; latest?: LaunchItem[] }
+    | undefined;
+  const resolvedTicker =
+    ticker ??
+    (rootData?.latest?.length ? <LaunchTicker items={rootData.latest} /> : undefined);
+  const resolvedCount = agentCount ?? rootData?.total ?? null;
 
   // Close with Escape + lock body scroll while the drawer is open.
   useEffect(() => {
@@ -86,8 +111,8 @@ export function AppShell({
             {/* Desktop: compound megamenu */}
             <div className="hidden min-w-0 flex-1 lg:flex">
               <MegaMenu
-                activeAisle={activeAisle}
                 activeCategory={activeCategory}
+                activeSubcategory={activeSubcategory}
               />
             </div>
             {/* Mobile: spacer pushes search/wallet to the right */}
@@ -113,7 +138,11 @@ export function AppShell({
         </div>
 
         {/* Row 2 — persistent novelties bar */}
-        <NoveltyBar ticker={ticker} />
+        <NoveltyBar
+          ticker={resolvedTicker}
+          agentCount={resolvedCount}
+          network={network}
+        />
       </header>
 
       {/* Mobile drawer (reuses the Sidebar tree) */}
@@ -144,8 +173,8 @@ export function AppShell({
             </div>
             <div onClick={() => setOpen(false)}>
               <Sidebar
-                activeAisle={activeAisle}
                 activeCategory={activeCategory}
+                activeSubcategory={activeSubcategory}
               />
             </div>
           </div>
@@ -158,6 +187,12 @@ export function AppShell({
           {children}
         </div>
       </main>
+
+      <Footer agentCount={resolvedCount} network={network} />
+
+      {/* ⌘K command palette + floating compare pill (both client-only, SSR-safe). */}
+      <CommandPalette />
+      <ComparePill />
     </div>
   );
 }

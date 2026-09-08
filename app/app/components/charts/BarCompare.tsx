@@ -23,7 +23,7 @@ export interface BarCompareProps {
 const VBW = 320;
 const ROW_H = 30;
 const BAR_H = 14;
-const GUTTER = 96; // category label
+const GUTTER = 96; // subcategory label
 const RIGHT = 44; // reserved for value label
 const PAD_TOP = 4;
 

@@ -3,7 +3,7 @@
  * agent's "specialty" is shown: a CLMM agent's range approach, a yield agent's
  * protocol set, a health agent's monitoring mandate, etc.
  *
- * Honesty: category-specific live figures (APY, floor, health-factor, LP range)
+ * Honesty: subcategory-specific live figures (APY, floor, health-factor, LP range)
  * are read from the agent's own endpoint at hire — never invented here. This
  * panel stays qualitative and real (protocols, tags, interface).
  */
@@ -12,6 +12,7 @@ import type { AgentDetail } from "../../lib/contracts";
 import type { ProfileMeta } from "../../lib/profile";
 import { Card } from "../Card";
 import { ScoreMeter } from "../ScoreMeter";
+import { ClmmSpecialty } from "./ClmmSpecialty";
 
 function Chips({ items }: { items: string[] }) {
   return (
@@ -43,33 +44,14 @@ export function SpecialtyPanel({
   const protocols = agent.supportedProtocols ?? [];
   const tags = agent.tags ?? [];
 
+  // clmm (Rebalancing) has a dedicated, specialised panel of its own.
+  if (meta.template === "clmm") {
+    return <ClmmSpecialty detail={detail} meta={meta} />;
+  }
+
   return (
     <Card accent={meta.accent} className="p-5">
       <h2 className="mb-4 text-sm font-semibold text-text">{meta.specialtyTitle}</h2>
-
-      {/* clmm — concentrated-liquidity range approach */}
-      {meta.template === "clmm" ? (
-        <>
-          <p className="text-sm text-text-2">
-            Manages a concentrated-liquidity range: repositions the LP band as
-            volatility and price move, aiming to stay in range and earn fees.
-          </p>
-          {protocols.length > 0 && (
-            <div className="mt-3">
-              <Chips items={protocols} />
-            </div>
-          )}
-          {tags.length > 0 && (
-            <div className="mt-3">
-              <Chips items={tags} />
-            </div>
-          )}
-          <Note>
-            The live range (tickLower/tickUpper) is computed by the agent's own
-            endpoint at hire — not indexed here.
-          </Note>
-        </>
-      ) : null}
 
       {/* yield / rwa — protocol set */}
       {meta.template === "yield" || meta.template === "rwa" ? (

@@ -2,18 +2,17 @@
  * Client for the proxy Worker to 8004scan (workers/8004-proxy).
  *
  * Deliberately mirrors the `Agent`/`AgentsPage`/`Pagination` types from the proxy
- * (workers/8004-proxy/src/index.ts) — just like lib/categories.ts mirrors the
- * categories. Cross-package imports aren't possible (separate tsconfigs); keep
+ * (workers/8004-proxy/src/index.ts) — just like lib/subcategories.ts mirrors the
+ * subcategories. Cross-package imports aren't possible (separate tsconfigs); keep
  * them in sync by hand.
  *
- * Golden rule (hackathon Data Quality): categories are NEVER left blank. If the
- * proxy fails / rate-limits / returns empty, we fall back to the curated seed
- * (lib/seed.ts) and mark the source honestly.
+ * Real data only: everything shown comes straight from 8004scan via the proxy.
+ * There is no mock/seed fallback — if the proxy fails or returns nothing, the UI
+ * shows an honest empty state rather than placeholder agents.
  */
 
-import type { Category } from "./categories";
-import { CATEGORY_LABELS } from "./categories";
-import { seedByCategory, seedAgentById, SEED_AGENTS } from "./seed";
+import type { Subcategory } from "./subcategories";
+import { SUBCATEGORY_LABELS } from "./subcategories";
 import type { Reputation, AgentServices } from "./contracts";
 
 export type AgentSource = "8004scan" | "seed";
@@ -28,8 +27,8 @@ export interface Agent {
   name: string;
   description: string;
   imageUrl?: string;
-  category: Category | null;
-  categoryLabel: string | null;
+  subcategory: Subcategory | null;
+  subcategoryLabel: string | null;
   // Real onchain metrics (Data Quality). Honest names from 8004scan.
   stars: number;
   score: number;
@@ -71,123 +70,172 @@ export interface AgentsPage {
   agents: Agent[];
   count: number;
   pagination: Pagination;
-  categories: Array<{ id: Category; label: string }>;
+  subcategories: Array<{ id: Subcategory; label: string }>;
   /** true if the proxy responded anonymously (lower rate-limit, but works). */
   anonymous?: boolean;
-  /** true if the ENTIRE listing came from the curated seed (proxy down/empty). */
-  fromSeed?: boolean;
 }
 
 export interface ListParams {
-  category?: Category;
+  subcategory?: Subcategory;
   page?: number;
   limit?: number;
   search?: string;
+  /** BSC chain to query: 56 (mainnet, default) or 97 (testnet). */
+  chain?: number;
 }
 
-const categoriesMeta = () =>
-  (Object.keys(CATEGORY_LABELS) as Category[]).map((id) => ({
-    id,
-    label: CATEGORY_LABELS[id],
-  }));
+/** Only 56 (mainnet) and 97 (testnet) are supported; anything else → default 56. */
+function normalizeChain(chain?: number): 56 | 97 | undefined {
+  return chain === 97 || chain === 56 ? chain : undefined;
+}
 
-/** Page built 100% from the seed (full fallback or enrichment). */
-function seedPage(params: ListParams): AgentsPage {
-  const all = params.category ? seedByCategory(params.category) : SEED_AGENTS;
-  const filtered = params.search
-    ? all.filter((a) =>
-        `${a.name} ${a.description}`
-          .toLowerCase()
-          .includes(params.search!.toLowerCase()),
-      )
-    : all;
-  const limit = params.limit ?? 24;
-  const page = params.page ?? 1;
-  const start = (page - 1) * limit;
-  const slice = filtered.slice(start, start + limit);
-  return {
-    agents: slice,
-    count: slice.length,
-    pagination: {
-      page,
-      limit,
-      total: filtered.length,
-      hasMore: start + limit < filtered.length,
-    },
-    categories: categoriesMeta(),
-    fromSeed: true,
-  };
+/** "Topaz Agent (v3)!" → "topaz-agent-v3". URL-safe, collapsed, trimmed. */
+export function kebab(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "") // strip diacritics
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 /**
- * Enriches a proxy page with seed data when it comes back thin, so no category
- * looks empty in front of the jury. Dedup by tokenId+name.
+ * Reduce an agent slug to its bare token id. The id is the last numeric group
+ * (`topaz-agent-113284` → `113284`); a bare id passes through unchanged. When
+ * there are no trailing digits (malformed slug) the input is returned as-is so
+ * the loader resolves it to a 404 honestly.
  */
-function enrich(page: AgentsPage, params: ListParams): AgentsPage {
-  const MIN = 3;
-  if (page.agents.length >= MIN) return page;
-  const extra = (
-    params.category ? seedByCategory(params.category) : SEED_AGENTS
-  ).filter(
-    (s) =>
-      !page.agents.some(
-        (a) => a.tokenId === s.tokenId || a.name === s.name,
-      ),
-  );
-  const agents = [...page.agents, ...extra].slice(0, params.limit ?? 24);
-  return { ...page, agents, count: agents.length };
+export function slugToId(slug: string): string {
+  return slug.match(/(\d+)$/)?.[1] ?? slug;
 }
 
-export function createAgentsClient(opts: { baseUrl: string; signal?: AbortSignal }) {
+/**
+ * Internal href to an agent's detail page. Builds a readable `name-id` slug
+ * (`/agent/topaz-agent-113284`) so URLs are human-friendly; the id still lives
+ * at the tail so the loader can resolve it. Carries `?chain=97` for testnet
+ * agents. When no name is available it degrades to `/agent/${id}` (still valid).
+ */
+export function agentHref(agent: {
+  id: string;
+  name?: string | null;
+  chainId?: number;
+}): string {
+  const q = agent.chainId === 97 ? "?chain=97" : "";
+  const slugName = agent.name ? kebab(agent.name) : "";
+  const slug = slugName ? `${slugName}-${agent.id}` : agent.id;
+  return `/agent/${encodeURIComponent(slug)}${q}`;
+}
+
+/** Internal href to the hire page, threading `&chain=97` for testnet agents. */
+export function hireHref(id: string, chainId?: number): string {
+  const q = chainId === 97 ? "&chain=97" : "";
+  return `/hire?agent=${encodeURIComponent(id)}${q}`;
+}
+
+const subcategoriesMeta = () =>
+  (Object.keys(SUBCATEGORY_LABELS) as Subcategory[]).map((id) => ({
+    id,
+    label: SUBCATEGORY_LABELS[id],
+  }));
+
+/** Honest empty page (proxy unreachable / returned nothing). No placeholders. */
+function emptyPage(params: ListParams): AgentsPage {
+  return {
+    agents: [],
+    count: 0,
+    pagination: {
+      page: params.page ?? 1,
+      limit: params.limit ?? 24,
+      total: 0,
+      hasMore: false,
+    },
+    subcategories: subcategoriesMeta(),
+  };
+}
+
+export function createAgentsClient(opts: {
+  baseUrl: string;
+  signal?: AbortSignal;
+  /** Service binding to the 8004-proxy worker. Same-account worker-to-worker calls
+   * over *.workers.dev loop back and 404, so in production we route through this
+   * binding; absent in local dev, where the plain fetch on baseUrl works. */
+  fetcher?: Fetcher;
+}) {
   const base = opts.baseUrl.replace(/\/$/, "");
+
+  /**
+   * Fetch the proxy, resilient to environment:
+   *  - Production: the service binding is the only path that works (a direct fetch
+   *    to *.workers.dev loops back to THIS worker and 404s), so we use it first.
+   *  - Local dev (`react-router dev`): the binding to the deployed proxy can't be
+   *    reached, so we fall back to a plain external fetch on the URL (which works).
+   * Falling back on a thrown error OR a non-ok response covers both cases without
+   * changing production behaviour (there, the binding returns ok and we never fall
+   * back; a real upstream error just 404s on the loopback and the caller handles it).
+   */
+  async function doFetch(url: string): Promise<Response> {
+    const init: RequestInit = {
+      signal: opts.signal,
+      headers: { accept: "application/json" },
+    };
+    if (opts.fetcher) {
+      try {
+        const res = await opts.fetcher.fetch(url, init);
+        if (res.ok) return res;
+      } catch {
+        /* binding unusable (e.g. dev) → direct fetch below */
+      }
+    }
+    return fetch(url, init);
+  }
 
   async function list(params: ListParams = {}): Promise<AgentsPage> {
     const url = new URL(`${base}/v1/agents`);
-    if (params.category) url.searchParams.set("category", params.category);
+    if (params.subcategory) url.searchParams.set("subcategory", params.subcategory);
     if (params.page) url.searchParams.set("page", String(params.page));
     if (params.limit) url.searchParams.set("limit", String(params.limit));
     if (params.search) url.searchParams.set("search", params.search);
+    const chain = normalizeChain(params.chain);
+    if (chain) url.searchParams.set("chain", String(chain));
     try {
-      const res = await fetch(url.toString(), {
-        signal: opts.signal,
-        headers: { accept: "application/json" },
-      });
-      if (!res.ok) return seedPage(params);
-      const data = (await res.json()) as AgentsPage;
-      if (!data?.agents?.length) return seedPage(params);
-      return enrich(data, params);
+      const res = await doFetch(url.toString());
+      if (!res.ok) return emptyPage(params);
+      return (await res.json()) as AgentsPage;
     } catch {
-      return seedPage(params);
+      return emptyPage(params);
     }
   }
 
-  async function get(tokenId: string): Promise<Agent | null> {
+  /** Build the /v1/agents/:id URL, threading ?chain when a valid one is given. */
+  function detailUrl(tokenId: string, chain?: number): string {
+    const url = new URL(`${base}/v1/agents/${encodeURIComponent(tokenId)}`);
+    const c = normalizeChain(chain);
+    if (c) url.searchParams.set("chain", String(c));
+    return url.toString();
+  }
+
+  async function get(tokenId: string, chain?: number): Promise<Agent | null> {
     try {
-      const res = await fetch(
-        `${base}/v1/agents/${encodeURIComponent(tokenId)}`,
-        { signal: opts.signal, headers: { accept: "application/json" } },
-      );
-      if (res.status === 404) return seedAgentById(tokenId) ?? null;
-      if (!res.ok) return seedAgentById(tokenId) ?? null;
+      const res = await doFetch(detailUrl(tokenId, chain));
+      if (!res.ok) return null;
       return (await res.json()) as Agent;
     } catch {
-      return seedAgentById(tokenId) ?? null;
+      return null;
     }
   }
 
-  /** Enriched detail (agent + reputation + services). Falls back to seed without reputation. */
-  async function getDetail(tokenId: string): Promise<AgentDetailRaw | null> {
+  /** Enriched detail (agent + reputation + services). null if the proxy has none. */
+  async function getDetail(
+    tokenId: string,
+    chain?: number,
+  ): Promise<AgentDetailRaw | null> {
     try {
-      const res = await fetch(
-        `${base}/v1/agents/${encodeURIComponent(tokenId)}`,
-        { signal: opts.signal, headers: { accept: "application/json" } },
-      );
+      const res = await doFetch(detailUrl(tokenId, chain));
       if (res.ok) return (await res.json()) as AgentDetailRaw;
     } catch {
-      /* falls through to the seed below */
+      /* fall through to null */
     }
-    const seed = seedAgentById(tokenId);
-    return seed ? { ...seed, reputation: null, services: null } : null;
+    return null;
   }
 
   return { baseUrl: base, list, get, getDetail };

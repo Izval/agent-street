@@ -4,26 +4,26 @@
  * Real marketplace hierarchy: **Categories** (level 1: Trading, DeFi, …) that
  * expand to show their **Subcategories** (level 2) nested inside. The 4
  * required hackathon subcategories are NOT a separate level: they live inside
- * their category and are marked with ★ (Agent Diversity visible without inventing taxonomy).
+ * their subcategory and are marked with ★ (Agent Diversity visible without inventing taxonomy).
  *
  * Active state = --text text + --brand left bar (scarce yellow). The tree
- * auto-expands the category of the active context (current route) and respects what the
+ * auto-expands the subcategory of the active context (current route) and respects what the
  * user opens/closes by hand. SSR-safe: the initial state derives from props (no window).
  */
 
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import {
-  AISLES,
-  REQUIRED_CATEGORIES,
-  categoriesInAisle,
-  categoryLabel,
-  aisleOf,
-  type Aisle,
+  CATEGORIES,
+  REQUIRED_SUBCATEGORIES,
+  subcategoriesInCategory,
+  subcategoryLabel,
+  categoryOf,
   type Category,
+  type Subcategory,
 } from "../lib/taxonomy";
 
-const REQUIRED = new Set<Category>(REQUIRED_CATEGORIES);
+const REQUIRED = new Set<Subcategory>(REQUIRED_SUBCATEGORIES);
 
 const ITEM_BASE =
   "relative flex min-h-[44px] items-center gap-3 rounded pl-3 pr-2 text-sm transition-colors";
@@ -38,21 +38,21 @@ function ActiveBar() {
 }
 
 export function Sidebar({
-  activeAisle,
   activeCategory,
+  activeSubcategory,
 }: {
-  activeAisle?: Aisle;
   activeCategory?: Category;
+  activeSubcategory?: Subcategory;
 }) {
-  // Category of the active context: the selected one, or the subcategory's parent.
-  const activeParent: Aisle | null =
-    activeAisle ?? (activeCategory ? aisleOf(activeCategory) : null);
+  // Subcategory of the active context: the selected one, or the subcategory's parent.
+  const activeParent: Category | null =
+    activeCategory ?? (activeSubcategory ? categoryOf(activeSubcategory) : null);
 
-  const [expanded, setExpanded] = useState<Set<Aisle>>(
+  const [expanded, setExpanded] = useState<Set<Category>>(
     () => new Set(activeParent ? [activeParent] : []),
   );
 
-  // On navigation (SPA), open the new context's category without closing the others.
+  // On navigation (SPA), open the new context's subcategory without closing the others.
   useEffect(() => {
     if (!activeParent) return;
     setExpanded((prev) => {
@@ -63,7 +63,7 @@ export function Sidebar({
     });
   }, [activeParent]);
 
-  const toggle = (id: Aisle) => (e: React.MouseEvent) => {
+  const toggle = (id: Category) => (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation(); // don't close the mobile drawer when expanding
     setExpanded((prev) => {
@@ -79,12 +79,16 @@ export function Sidebar({
       aria-label="Main navigation"
       className="flex h-full flex-col gap-5 p-4"
     >
-      {/* BNB logo (yellow brand, §7) */}
+      {/* Brand logo (yellow mark on dark, §7) */}
       <Link to="/" className="flex items-center gap-2 px-1">
-        <span className="grid h-7 w-7 place-items-center rounded-full bg-brand font-bold text-bg">
-          A
-        </span>
-        <span className="text-lg font-bold tracking-tight">
+        <img
+          src="/logo.avif"
+          alt="Agent-Street"
+          width={32}
+          height={32}
+          className="h-8 w-8 rounded-lg"
+        />
+        <span className="font-mono text-base font-bold uppercase tracking-[0.08em]">
           Agent<span className="text-brand">-</span>Street
         </span>
       </Link>
@@ -95,14 +99,14 @@ export function Sidebar({
           Categories
         </div>
 
-        {AISLES.map((a) => {
-          const active = activeAisle === a.id;
+        {CATEGORIES.map((a) => {
+          const active = activeCategory === a.id;
           const isOpen = expanded.has(a.id);
-          const subs = categoriesInAisle(a.id);
+          const subs = subcategoriesInCategory(a.id);
           const panelId = `subcats-${a.id}`;
           return (
             <div key={a.id}>
-              {/* Category row: link + chevron to expand. */}
+              {/* Subcategory row: link + chevron to expand. */}
               <div
                 className={
                   ITEM_BASE +
@@ -114,7 +118,7 @@ export function Sidebar({
               >
                 {active && <ActiveBar />}
                 <Link
-                  to={`/aisle/${a.id}`}
+                  to={`/category/${a.id}`}
                   aria-current={active ? "page" : undefined}
                   className="flex flex-1 items-center gap-3"
                 >
@@ -154,11 +158,11 @@ export function Sidebar({
                   className="mb-1 ml-[26px] mt-0.5 flex flex-col gap-0.5 border-l border-border pl-2"
                 >
                   {subs.map((c) => {
-                    const subActive = activeCategory === c.id;
+                    const subActive = activeSubcategory === c.id;
                     return (
                       <Link
                         key={c.id}
-                        to={`/category/${c.id}`}
+                        to={`/subcategory/${c.id}`}
                         aria-current={subActive ? "page" : undefined}
                         className={
                           "relative flex min-h-[40px] items-center gap-2 rounded pl-2.5 pr-2 text-[13px] transition-colors " +
@@ -169,11 +173,11 @@ export function Sidebar({
                       >
                         {subActive && <ActiveBar />}
                         <span className="flex-1 truncate">
-                          {categoryLabel(c.id)}
+                          {subcategoryLabel(c.id)}
                         </span>
                         {REQUIRED.has(c.id) && (
                           <span
-                            aria-label="Required hackathon category"
+                            aria-label="Required hackathon subcategory"
                             title="Required"
                             className="shrink-0 text-[11px] text-brand"
                           >
@@ -193,16 +197,28 @@ export function Sidebar({
       {/* CTAs: hire (marketplace) / build (BNB Agent Studio) */}
       <div className="flex flex-col gap-2 px-1">
         <Link
+          to="/portfolios"
+          className="flex min-h-[40px] items-center justify-center rounded-[999px] border border-border px-4 text-sm font-semibold text-text-2 transition-colors hover:border-brand hover:text-text"
+        >
+          Portfolios
+        </Link>
+        <Link
           to="/create"
           className="flex min-h-[40px] items-center justify-center rounded-[999px] bg-brand px-4 text-sm font-semibold text-bg transition-colors hover:bg-brand-bright"
         >
           Build agent
         </Link>
         <Link
-          to="/hire"
+          to="/docs/hiring"
           className="flex min-h-[40px] items-center justify-center rounded-[999px] border border-border px-4 text-sm font-semibold text-text-2 transition-colors hover:border-brand hover:text-text"
         >
           How to hire
+        </Link>
+        <Link
+          to="/docs"
+          className="flex min-h-[40px] items-center justify-center rounded-[999px] border border-border px-4 text-sm font-semibold text-text-2 transition-colors hover:border-brand hover:text-text"
+        >
+          Docs
         </Link>
         <Link
           to="/for-agents"

@@ -10,18 +10,19 @@
  */
 
 import { Link } from "react-router";
+import { agentHref } from "../lib/agents";
 
 export interface LaunchItem {
   id: string;
   name: string;
-  category?: string | null;
+  subcategory?: string | null;
   score?: number;
 }
 
 function TickerItem({ item }: { item: LaunchItem }) {
   return (
     <Link
-      to={`/agent/${encodeURIComponent(item.id)}`}
+      to={agentHref({ id: item.id, name: item.name })}
       className="group flex shrink-0 items-center gap-2 px-4 text-xs"
     >
       <span className="font-semibold text-white transition-colors group-hover:text-brand">

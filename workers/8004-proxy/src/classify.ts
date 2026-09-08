@@ -2,23 +2,24 @@
 //
 // ESPEJO del contrato fuente-de-verdad `app/app/lib/taxonomy.ts` (no se puede
 // importar cross-package). Mantener en sync: si cambia una `kw`, un `id`, un
-// `search` o el ORDEN allá, cámbialo aquí. El orden de `CATEGORY_DEFS` = prioridad
+// `search` o el ORDEN allá, cámbialo aquí. El orden de `SUBCATEGORY_DEFS` = prioridad
 // de clasificación (la primera regla que matchea gana: rebalancing > lending, etc.).
 //
 // El track principal exige "Agent Diversity": las 4 categorías OBLIGATORIAS
 // (`rebalancing`, `grid`, `yield`, `health`) mantienen ids ESTABLES y se tratan
 // con igual profundidad. La taxonomía extendida es una capa ENCIMA, no un reemplazo.
 
-export type Aisle =
+export type Category =
   | "trading"
-  | "defi"
+  | "liquidity"
+  | "lending"
+  | "yield"
+  | "meme"
   | "nft"
   | "rwa"
-  | "infra"
-  | "payments"
-  | "social";
+  | "infra";
 
-export type Category =
+export type Subcategory =
   // trading
   | "grid" // ★ obligatoria
   | "dca"
@@ -26,28 +27,35 @@ export type Category =
   | "copy-trade"
   | "market-making"
   | "perps"
-  // defi
+  | "social-signals" // re-homed to trading ("Signals")
+  | "social-narratives" // re-homed to trading ("Narratives")
+  // liquidity providing
   | "rebalancing" // ★ obligatoria (hogar de IVL)
-  | "yield" // ★ obligatoria
-  | "health" // ★ obligatoria
+  | "liquidity-pool"
+  // lending
   | "lending"
+  | "health" // ★ obligatoria
+  // yield
+  | "yield" // ★ obligatoria
   | "liquid-staking"
+  // meme
+  | "meme-trading"
+  | "meme-launch"
   // nft
   | "nft-floor"
   | "nft-mint"
   // rwa
   | "rwa-assets"
   | "rwa-treasury"
-  // infra
+  // infra (absorbs payments)
   | "infra-data"
-  | "infra-wallet"
   | "infra-automation"
-  // payments
   | "payments-x402"
   | "payments-jobs"
-  // social
-  | "social-signals"
-  | "social-narratives";
+  // cyber
+  | "cyber-audit"
+  | "cyber-monitor"
+  | "cyber-approvals";
 
 export type TemplateKind =
   | "trading" // win-rate · PnL · volumen · equity curve
@@ -58,10 +66,10 @@ export type TemplateKind =
   | "rwa" // tipo de activo · respaldo · yield
   | "services"; // services/skills · x402 · uptime · freshness
 
-export interface CategoryDef {
-  id: Category;
+export interface SubcategoryDef {
+  id: Subcategory;
   label: string;
-  aisle: Aisle;
+  category: Category;
   template: TemplateKind;
   /** Una de las 4 obligatorias del hackathon (igual profundidad). */
   required?: boolean;
@@ -72,15 +80,15 @@ export interface CategoryDef {
 }
 
 /**
- * ESPEJO EXACTO de `CATEGORY_DEFS` en taxonomy.ts (mismo orden = misma prioridad,
+ * ESPEJO EXACTO de `SUBCATEGORY_DEFS` en taxonomy.ts (mismo orden = misma prioridad,
  * mismas regex `kw`, mismos `search`). No reordenar sin sincronizar allá.
  */
-export const CATEGORY_DEFS: CategoryDef[] = [
-  // --- DeFi (incluye 3 obligatorias) ---
+export const SUBCATEGORY_DEFS: SubcategoryDef[] = [
+  // --- Mandatory 4 first (stable ids, highest classify priority) ---
   {
     id: "rebalancing",
     label: "Rebalancing",
-    aisle: "defi",
+    category: "liquidity",
     template: "clmm",
     required: true,
     search: "rebalance",
@@ -89,7 +97,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
   {
     id: "yield",
     label: "Yield Optimization",
-    aisle: "defi",
+    category: "yield",
     template: "yield",
     required: true,
     search: "yield",
@@ -98,42 +106,70 @@ export const CATEGORY_DEFS: CategoryDef[] = [
   {
     id: "health",
     label: "Health Factor",
-    aisle: "defi",
+    category: "lending",
     template: "health",
     required: true,
     search: "liquidation",
     kw: /\b(health\s*factor|liquidation|collateral|risk\s*monitor|guard|solvenc|\bltv\b)\b/i,
   },
   {
-    id: "lending",
-    label: "Lending",
-    aisle: "defi",
-    template: "yield",
-    search: "lending",
-    kw: /\b(lend|borrow|aave|venus|compound|money\s*market)\b/i,
-  },
-  {
-    id: "liquid-staking",
-    label: "Liquid Staking",
-    aisle: "defi",
-    template: "yield",
-    search: "staking",
-    kw: /\b(liquid\s*stak|\blst\b|stak|lista|slisbnb|restak)\b/i,
-  },
-  // --- Trading (incluye 1 obligatoria) ---
-  {
     id: "grid",
     label: "Grid Trading",
-    aisle: "trading",
+    category: "trading",
     template: "trading",
     required: true,
     search: "grid",
     kw: /\b(grid|ladder|martingale)\b/i,
   },
+  // --- Liquidity Providing ---
+  {
+    id: "liquidity-pool",
+    label: "LP Management",
+    category: "liquidity",
+    template: "clmm",
+    search: "liquidity",
+    kw: /\b(liquidity\s*provid|add\s*liquidity|lp\s*position|v3\s*pool|pool\s*manag)\b/i,
+  },
+  // --- Lending ---
+  {
+    id: "lending",
+    label: "Lending & Borrowing",
+    category: "lending",
+    template: "yield",
+    search: "lending",
+    kw: /\b(lend|borrow|aave|venus|compound|money\s*market)\b/i,
+  },
+  // --- Yield ---
+  {
+    id: "liquid-staking",
+    label: "Liquid Staking",
+    category: "yield",
+    template: "yield",
+    search: "staking",
+    kw: /\b(liquid\s*stak|\blst\b|stak|lista|slisbnb|restak)\b/i,
+  },
+  // --- Meme (owns four.meme; must precede Narratives) ---
+  {
+    id: "meme-trading",
+    label: "Meme Trading",
+    category: "meme",
+    template: "trading",
+    search: "meme",
+    kw: /\b(four\.?meme|meme\s*coin|meme\s*trad|degen)\b/i,
+  },
+  {
+    id: "meme-launch",
+    label: "Launches & Sniping",
+    category: "meme",
+    template: "trading",
+    search: "launch",
+    kw: /\b(meme\s*launch|token\s*launch|snipe|bonding\s*curve|pump)\b/i,
+  },
+  // --- Trading (rest) ---
   {
     id: "dca",
     label: "DCA",
-    aisle: "trading",
+    category: "trading",
     template: "trading",
     search: "dca",
     kw: /\b(dca|dollar\s*cost|accumulat)\b/i,
@@ -141,7 +177,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
   {
     id: "copy-trade",
     label: "Copy Trade",
-    aisle: "trading",
+    category: "trading",
     template: "trading",
     search: "copy trade",
     kw: /\b(copy\s*trad|mirror\s*trad|social\s*trad|follow\s*wallet)\b/i,
@@ -149,7 +185,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
   {
     id: "market-making",
     label: "Market Making",
-    aisle: "trading",
+    category: "trading",
     template: "trading",
     search: "market maker",
     kw: /\b(market\s*mak|\bmm\b|spread|orderbook)\b/i,
@@ -157,7 +193,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
   {
     id: "perps",
     label: "Perps",
-    aisle: "trading",
+    category: "trading",
     template: "trading",
     search: "perp",
     kw: /\b(perp|futures|leverage|funding\s*rate)\b/i,
@@ -165,58 +201,15 @@ export const CATEGORY_DEFS: CategoryDef[] = [
   {
     id: "momentum",
     label: "Momentum",
-    aisle: "trading",
+    category: "trading",
     template: "trading",
     search: "momentum",
     kw: /\b(momentum|trend|breakout|signal\s*trad|alpha)\b/i,
   },
-  // --- Payments ---
-  {
-    id: "payments-x402",
-    label: "x402 Payments",
-    aisle: "payments",
-    template: "services",
-    search: "x402",
-    kw: /\b(x402|eip-?3009|micropay|api\s*payment)\b/i,
-  },
-  {
-    id: "payments-jobs",
-    label: "Job Agents (ERC-8183)",
-    aisle: "payments",
-    template: "services",
-    search: "erc-8183",
-    kw: /\b(erc-?8183|job\s*market|task\s*deleg|seller\s*agent|negotiat)\b/i,
-  },
-  // --- Infra ---
-  {
-    id: "infra-data",
-    label: "Data & Oracles",
-    aisle: "infra",
-    template: "services",
-    search: "oracle",
-    kw: /\b(oracle|data\s*feed|indexer|analytics|price\s*feed|radar|scanner)\b/i,
-  },
-  {
-    id: "infra-wallet",
-    label: "Wallet & Keys",
-    aisle: "infra",
-    template: "services",
-    search: "wallet",
-    kw: /\b(wallet\s*track|smart\s*wallet|account\s*abstract|session\s*key|keeper)\b/i,
-  },
-  {
-    id: "infra-automation",
-    label: "Automation",
-    aisle: "infra",
-    template: "services",
-    search: "automation",
-    kw: /\b(automat|workflow|scheduler|trigger|bot\s*framework)\b/i,
-  },
-  // --- Social ---
   {
     id: "social-signals",
     label: "Signals",
-    aisle: "social",
+    category: "trading",
     template: "services",
     search: "signal",
     kw: /\b(signal|sentiment|social\s*feed|twitter|telegram)\b/i,
@@ -224,16 +217,74 @@ export const CATEGORY_DEFS: CategoryDef[] = [
   {
     id: "social-narratives",
     label: "Narratives",
-    aisle: "social",
+    category: "trading",
     template: "services",
     search: "narrative",
-    kw: /\b(narrative|meme|trend\s*hunt|four\.?meme)\b/i,
+    kw: /\b(narrative|trend\s*hunt|thesis|rotation)\b/i,
+  },
+  // --- Infra (absorbs Payments) ---
+  {
+    id: "payments-x402",
+    label: "x402 Payments",
+    category: "infra",
+    template: "services",
+    search: "x402",
+    kw: /\b(x402|eip-?3009|micropay|api\s*payment)\b/i,
+  },
+  {
+    id: "payments-jobs",
+    label: "Job Agents (ERC-8183)",
+    category: "infra",
+    template: "services",
+    search: "erc-8183",
+    kw: /\b(erc-?8183|job\s*market|task\s*deleg|seller\s*agent|negotiat)\b/i,
+  },
+  {
+    id: "infra-data",
+    label: "Data & Oracles",
+    category: "infra",
+    template: "services",
+    search: "oracle",
+    kw: /\b(oracle|data\s*feed|indexer|analytics|price\s*feed|radar|scanner|wallet\s*track|keeper)\b/i,
+  },
+  {
+    id: "infra-automation",
+    label: "Automation",
+    category: "infra",
+    template: "services",
+    search: "automation",
+    kw: /\b(automat|workflow|scheduler|trigger|bot\s*framework)\b/i,
+  },
+  // --- Infra: Security (cybersecurity, folded into Infrastructure) ---
+  {
+    id: "cyber-audit",
+    label: "Audits & Security",
+    category: "infra",
+    template: "services",
+    search: "audit",
+    kw: /\b(audit|contract\s*secur|vulnerab|exploit\s*scan|formal\s*verif)\b/i,
+  },
+  {
+    id: "cyber-monitor",
+    label: "Threat Monitoring",
+    category: "infra",
+    template: "services",
+    search: "security",
+    kw: /\b(rug\s*pull|scam\s*detect|threat\s*monitor|honeypot|anomaly)\b/i,
+  },
+  {
+    id: "cyber-approvals",
+    label: "Approvals & Hygiene",
+    category: "infra",
+    template: "services",
+    search: "approvals",
+    kw: /\b(approval\s*revoke|token\s*approval|allowance|wallet\s*hygiene)\b/i,
   },
   // --- NFT ---
   {
     id: "nft-floor",
     label: "Floor & Sweep",
-    aisle: "nft",
+    category: "nft",
     template: "nft",
     search: "nft",
     kw: /\b(nft|floor\s*price|sweep|collection\s*trad)\b/i,
@@ -241,7 +292,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
   {
     id: "nft-mint",
     label: "Mint",
-    aisle: "nft",
+    category: "nft",
     template: "nft",
     search: "mint",
     kw: /\b(mint\s*bot|allowlist|inscription)\b/i,
@@ -250,7 +301,7 @@ export const CATEGORY_DEFS: CategoryDef[] = [
   {
     id: "rwa-assets",
     label: "Tokenized Assets",
-    aisle: "rwa",
+    category: "rwa",
     template: "rwa",
     search: "rwa",
     kw: /\b(rwa|real\s*world|tokeniz|commodit)\b/i,
@@ -258,43 +309,43 @@ export const CATEGORY_DEFS: CategoryDef[] = [
   {
     id: "rwa-treasury",
     label: "Treasury & T-Bills",
-    aisle: "rwa",
+    category: "rwa",
     template: "rwa",
     search: "treasury",
     kw: /\b(treasury|t-?bill|bond|money\s*market\s*fund)\b/i,
   },
 ];
 
-// --- Índices y helpers (derivados de CATEGORY_DEFS, en orden) ---
+// --- Índices y helpers (derivados de SUBCATEGORY_DEFS, en orden) ---
 
 /** Todos los ids de categoría, en orden de prioridad. */
-export const CATEGORIES: readonly Category[] = CATEGORY_DEFS.map((c) => c.id);
+export const SUBCATEGORIES: readonly Subcategory[] = SUBCATEGORY_DEFS.map((c) => c.id);
 
 /** Las 4 obligatorias del hackathon (ids estables). */
-export const REQUIRED_CATEGORIES: readonly Category[] = CATEGORY_DEFS.filter(
+export const REQUIRED_SUBCATEGORIES: readonly Subcategory[] = SUBCATEGORY_DEFS.filter(
   (c) => c.required,
 ).map((c) => c.id);
 
-export const CATEGORY_LABELS: Record<Category, string> = Object.fromEntries(
-  CATEGORY_DEFS.map((c) => [c.id, c.label]),
-) as Record<Category, string>;
+export const SUBCATEGORY_LABELS: Record<Subcategory, string> = Object.fromEntries(
+  SUBCATEGORY_DEFS.map((c) => [c.id, c.label]),
+) as Record<Subcategory, string>;
 
 /**
  * Término de búsqueda server-side por categoría para la 8004scan API (`?search=`).
  * Con 257k+ agentes en BSC, filtramos server-side por categoría en vez de
  * clasificar páginas enteras. Toda categoría de la taxonomía tiene su término.
  */
-export const CATEGORY_SEARCH: Record<Category, string> = Object.fromEntries(
-  CATEGORY_DEFS.map((c) => [c.id, c.search ?? c.id]),
-) as Record<Category, string>;
+export const SUBCATEGORY_SEARCH: Record<Subcategory, string> = Object.fromEntries(
+  SUBCATEGORY_DEFS.map((c) => [c.id, c.search ?? c.id]),
+) as Record<Subcategory, string>;
 
-export const AISLE_OF: Record<Category, Aisle> = Object.fromEntries(
-  CATEGORY_DEFS.map((c) => [c.id, c.aisle]),
-) as Record<Category, Aisle>;
+export const CATEGORY_OF: Record<Subcategory, Category> = Object.fromEntries(
+  SUBCATEGORY_DEFS.map((c) => [c.id, c.category]),
+) as Record<Subcategory, Category>;
 
-export const TEMPLATE_OF: Record<Category, TemplateKind> = Object.fromEntries(
-  CATEGORY_DEFS.map((c) => [c.id, c.template]),
-) as Record<Category, TemplateKind>;
+export const TEMPLATE_OF: Record<Subcategory, TemplateKind> = Object.fromEntries(
+  SUBCATEGORY_DEFS.map((c) => [c.id, c.template]),
+) as Record<Subcategory, TemplateKind>;
 
 /** Texto de un agente a considerar para clasificar. */
 export interface Classifiable {
@@ -302,28 +353,28 @@ export interface Classifiable {
   description?: string;
   skills?: string[];
   tags?: string[];
-  categories?: string[];
+  subcategories?: string[];
   protocols?: string[];
 }
 
 /**
  * Devuelve la categoría del agente, o null si ninguna keyword aplica.
- * Recorre `CATEGORY_DEFS` en orden y devuelve la primera cuya `kw` matchea sobre
- * name+description+skills+tags+categories+supported_protocols (en minúsculas).
+ * Recorre `SUBCATEGORY_DEFS` en orden y devuelve la primera cuya `kw` matchea sobre
+ * name+description+skills+tags+subcategories+supported_protocols (en minúsculas).
  */
-export function classifyAgent(a: Classifiable): Category | null {
+export function classifyAgent(a: Classifiable): Subcategory | null {
   const hay = [
     a.name ?? "",
     a.description ?? "",
     ...(a.skills ?? []),
     ...(a.tags ?? []),
-    ...(a.categories ?? []),
+    ...(a.subcategories ?? []),
     ...(a.protocols ?? []),
   ]
     .join(" ")
     .toLowerCase();
 
-  for (const def of CATEGORY_DEFS) {
+  for (const def of SUBCATEGORY_DEFS) {
     if (def.kw?.test(hay)) return def.id;
   }
   return null;

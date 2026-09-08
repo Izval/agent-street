@@ -1,8 +1,8 @@
 import { Link } from "react-router";
 
 import type { Route } from "./+types/skill";
-import { skillById } from "../lib/skills";
-import { aisleOf, categoryLabel, type Aisle } from "../lib/taxonomy";
+import { skillByIdAsync } from "../lib/skills-live";
+import { categoryOf, subcategoryLabel, type Category } from "../lib/taxonomy";
 import { AppShell } from "../components/AppShell";
 import { Card } from "../components/Card";
 
@@ -11,7 +11,7 @@ export function meta({ loaderData }: Route.MetaArgs) {
 }
 
 export async function loader({ params }: Route.LoaderArgs) {
-  const skill = skillById(params.id);
+  const skill = await skillByIdAsync(params.id);
   if (!skill) throw new Response("Not found", { status: 404 });
   return { skill };
 }
@@ -26,12 +26,12 @@ function hostOf(link: string): string {
 
 export default function SkillDetail({ loaderData }: Route.ComponentProps) {
   const { skill } = loaderData;
-  const aisle = aisleOf(skill.category);
+  const category = categoryOf(skill.subcategory);
 
   return (
     <AppShell
-      activeAisle={(aisle ?? undefined) as Aisle | undefined}
-      activeCategory={skill.category}
+      activeCategory={(category ?? undefined) as Category | undefined}
+      activeSubcategory={skill.subcategory}
     >
       <div className="py-2">
         <Link
@@ -47,7 +47,7 @@ export default function SkillDetail({ loaderData }: Route.ComponentProps) {
           <h1 className="text-2xl font-bold">{skill.name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className="rounded-[999px] bg-surface-2 px-2.5 py-0.5 text-xs font-semibold text-text-2">
-              {categoryLabel(skill.category)}
+              {subcategoryLabel(skill.subcategory)}
             </span>
             <span className="rounded-[999px] bg-surface-2 px-2.5 py-0.5 text-xs font-semibold text-text-2">
               {skill.provider}
@@ -57,19 +57,23 @@ export default function SkillDetail({ loaderData }: Route.ComponentProps) {
 
           <p className="mt-6 max-w-2xl text-text-2">{skill.description}</p>
 
-          <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-text-3">
-            Composable with
-          </h2>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {skill.composableWith.map((c) => (
-              <span
-                key={c}
-                className="rounded-[999px] border border-border px-3 py-1 text-xs font-semibold text-text-2"
-              >
-                {c}
-              </span>
-            ))}
-          </div>
+          {skill.composableWith.length > 0 && (
+            <>
+              <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-text-3">
+                Composable with
+              </h2>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {skill.composableWith.map((c) => (
+                  <span
+                    key={c}
+                    className="rounded-[999px] border border-border px-3 py-1 text-xs font-semibold text-text-2"
+                  >
+                    {c}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         <aside className="lg:sticky lg:top-24 lg:self-start">

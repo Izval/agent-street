@@ -1,0 +1,12 @@
+{
+  "name": "agent-street-root",
+  "private": true,
+  "description": "Repo root convenience scripts — the Remix app lives in app/",
+  "scripts": {
+    "dev": "npm --prefix app run dev",
+    "build": "npm --prefix app run build",
+    "deploy": "npm --prefix app run deploy",
+    "preview": "npm --prefix app run preview",
+    "typecheck": "npm --prefix app run typecheck"
+  }
+}

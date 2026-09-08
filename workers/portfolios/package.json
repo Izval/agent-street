@@ -1,0 +1,17 @@
+{
+  "name": "agent-street-portfolios",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Worker: agent portfolios (user-made sets), first-party gamification counters, leaderboard, and 'frequently hired together' affinity.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8792 --inspector-port 9342 --local",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260811.1",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.123.0"
+  }
+}

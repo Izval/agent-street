@@ -1,0 +1,70 @@
+{
+  "task": "pancakeswap-lp-onchain",
+  "description": "Live on-chain evidence: the IVL Rebalancer opens and rebalances a real PancakeSwap v3 concentrated-liquidity position on BSC testnet, using only its own capital (funds never leave the agent wallet).",
+  "network": { "name": "bsc-testnet", "chainId": 97, "explorer": "https://testnet.bscscan.com" },
+  "agent": {
+    "owner": "0xa1Fe55DCf41c1D3805Aad41D4aD1C9E1E06F06f1",
+    "erc8004_agent_id": 2055,
+    "a2a_endpoint": "https://ivl.onrender.com",
+    "sole_signer": true,
+    "custodies_user_funds": false
+  },
+  "market": {
+    "pair": "BNB-USDT",
+    "pool": "0x2dbB5a4c235164B9f772179A43faca2c71a8abDB",
+    "position_manager": "0x427bF5b37357632377eCbEC9de3626C71A5396c1",
+    "fee_tier_bps": 5,
+    "token0": "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd",
+    "token0_symbol": "USDT",
+    "token1": "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd",
+    "token1_symbol": "WBNB",
+    "tick_spacing": 10
+  },
+  "range_source": {
+    "engine": "IVL (api.zvlint.com/v1/ivl/ticks?pair=BNB-USDT)",
+    "note": "IVL emits the absolute optimal range; on chain 97 the testnet pool is synthetically mispriced, so the agent preserves the IVL WIDTH and anchors it to the live pool tick (anchor-to-live-tick) so the position is in-range by construction and earns fees on both sides."
+  },
+  "lifecycle": [
+    {
+      "step": "open",
+      "token_id": 37142,
+      "range_ticks": [-23420, -23110],
+      "status": "drained after rewiden (liquidity 0)",
+      "note": "Original position, minted prior to this session; verified on-chain (ownerOf/positions)."
+    },
+    {
+      "step": "rebalance",
+      "at": "2026-09-03",
+      "ivl_decision": { "ivl_score": 60, "classification": "good", "action": "withdraw_or_widen", "breakout_risk": "high" },
+      "intent": "rewiden",
+      "txs": {
+        "decrease": "0xa9ad1f97de332639d0d949fba0f3d520dc207cbf6a43d2b60ecfe0531d716e83",
+        "collect": "0x91cfe4fcbf460cc80fa141fe6c5b104a90dc0da85ade0e2dcc584776efbe55a9",
+        "approve_usdt": "0x587d78bdf2c27b45e00185e41862d739c7da701313b0eecd09b4af39b44316e7",
+        "approve_wbnb": "0x6517b32fc77bbe1e21115405d3cb52795dc82e78380ecce4be3218bfc24b3dfd",
+        "mint": "0x889cca1afe5b3a9d19945818e576be351f289c7f3beeec1e2fac575e110b3a9d"
+      }
+    },
+    {
+      "step": "reopen",
+      "token_id": 37197,
+      "range_ticks": [-23580, -22950],
+      "pool_tick_at_mint": -23265,
+      "in_range": true,
+      "two_sided": true,
+      "liquidity_raw": "4087...e18",
+      "deposited": { "USDT": 0.204816807221262816, "WBNB": 0.02 },
+      "status": "live",
+      "explorer": "https://testnet.bscscan.com/tx/0x889cca1afe5b3a9d19945818e576be351f289c7f3beeec1e2fac575e110b3a9d"
+    }
+  ],
+  "verify": {
+    "how": "Read the chain directly, no trust required.",
+    "calls": [
+      "NPM.ownerOf(37197) == 0xa1Fe55...06f1",
+      "NPM.positions(37197) -> liquidity > 0, ticks [-23580,-22950]",
+      "PancakeV3Pool(0x2dbB5a4c...).slot0().tick in [-23580,-22950] -> in range",
+      "NPM.positions(37142) -> liquidity == 0 (drained by the rewiden)"
+    ]
+  }
+}

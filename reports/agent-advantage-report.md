@@ -1,76 +1,91 @@
 # Agent Advantage Report — IVL Rebalancer
 
-> **Tesis:** contratar al agente **IVL Rebalancer** (gestión de liquidez concentrada guiada por el score IVL) rinde más por capital que gestionar el rango uno mismo — rangos fijos (*naive*) o al azar (*random*). La evidencia son datos de mercado **reales** (klines de Binance en vivo), no cifras inventadas.
+> **Thesis:** hiring the **IVL Rebalancer** agent (concentrated-liquidity management guided by the IVL score) returns more per unit of capital than managing the range yourself — fixed (*naive*) or random ranges. The evidence is **real** market data (live Binance klines), not made-up figures.
 
-## Metodología
+## Methodology
 
-- **Motor:** IVL (`api.zvlint.com` / `third_city`), consumido como seam — el agente de Agent-Street lo lista, no lo reimplementa.
-- **`compare`** (tarea de trading/rentabilidad): simulación walk-forward con el MISMO capital para tres formas de elegir el rango; mide `net = Σ(fees − IL) − coste·rebalanceos`.
-- **`backtest`**: para cada punto, deriva el rango IVL (μ_vwap ± 2σ) y simula mantenerlo sobre el horizonte futuro; mide time-in-range, tasa de breakout y fee-efficiency (fees/ancho).
-- **Reproducible:** `node reports/generate.mjs` regenera este archivo y `reports/metrics/*.json`.
+- **Engine:** IVL (`api.zvlint.com` / `third_city`), consumed as a seam — the Agent-Street agent lists it, it does not reimplement it.
+- **`compare`** (trading/profitability task): walk-forward simulation with the SAME capital for three ways of choosing the range; measures `net = Σ(fees − IL) − cost·rebalances`.
+- **`backtest`**: for each point, derives the IVL range (μ_vwap ± 2σ) and simulates holding it over the forward horizon; measures time-in-range, breakout rate and fee-efficiency (fees/width).
+- **Agent vs DIY axes (TermiX):** each trading task reports **time** (turnaround), **cost** (on-chain transactions) and **output quality** (net PnL / IL avoided).
+- **Reproducible:** `node reports/generate.mjs` (live, needs the sibling `third_city` repo) or `node reports/generate.mjs --offline` (renders from the committed `reports/metrics/*.json`).
 
-**Generado:** 2026-08-19T22:47:06.944Z · **Tareas medidas:** 4/4 (de trading: 1) · **Requisito TermiX:** ≥3 tareas, ≥1 trading → ✅ cumplido
+**Generated:** 2026-09-03T13:53:46.878Z · **Mode:** offline (committed metrics) · **Tasks measured:** 4/4 (trading: 1) · **TermiX requirement:** ≥3 tasks, ≥1 trading → ✅ met
 
-## Tarea 1 — Rentabilidad LP — AAVE/WBNB (1d, 365 velas) · _trading/rentabilidad_
+## Task 1 — LP profitability — AAVE/WBNB (1d, 365 candles) · _trading/profitability_
 
-**Par:** AAVE-WBNB · escala 1d · 365 velas · ancho típico 15.1%
+**Pair:** AAVE-WBNB · scale 1d · 365 candles · typical width 15.1%
 
-| Estrategia | Net (fees−IL) | Fees brutas | IL | Tiempo en rango | Rebalanceos |
+| Strategy | Net (fees−IL) | Gross fees | IL | Time in range | Rebalances |
 |---|---:|---:|---:|---:|---:|
-| **IVL (agente)** | 2.21 | 123.26 | 107.55 | 25.9% | 9 |
-| Naive (DIY fijo) | -39.63 | 297.77 | 289.39 | 100.0% | 32 |
-| Random (DIY azar) | -46.19 | 267.76 | 265.88 | 99.4% | 32 |
+| **IVL (agent)** | 2.21 | 123.26 | 107.55 | 25.9% | 9 |
+| Naive (DIY fixed) | -39.63 | 297.77 | 289.39 | 100.0% | 32 |
+| Random (DIY chance) | -46.19 | 267.76 | 265.88 | 99.4% | 32 |
 
-- **IVL vs Random:** **pérdida→ganancia** (+48.4 net)
-- **IVL vs Naive:** **pérdida→ganancia** (+41.84 net)
-- **IL evitado:** IVL 107.55 vs Naive 289.39 (−63%)
+- **IVL vs Random:** **loss→gain** (+48.4 net)
+- **IVL vs Naive:** **loss→gain** (+41.84 net)
+- **IL avoided:** IVL 107.55 vs Naive 289.39 (−63%)
+- **Track record:** window 365 1d candles (~1.0 yr) · risk: −63% IL/drawdown vs the DIY naive range · outcome: net 2.21 (agent) vs -39.63 (DIY).
 
-<sub>Métricas crudas: [`metrics/compare-aave-wbnb.json`](./metrics/compare-aave-wbnb.json)</sub>
+**With agent vs without (TermiX axes):**
 
-## Tarea 2 — Backtest walk-forward — BNB/USDT (flagship)
+| Axis | With agent (IVL) | Without (DIY naive) | Advantage |
+|---|---|---|---|
+| Time (turnaround) | seconds (compute + submit) | ~20 min (manual, estimated) | agent decides in seconds |
+| Cost (on-chain txs) | 9 rebalances | 32 rebalances | −72% gas txs |
+| Output quality (net) | 2.21 | -39.63 | **loss→gain** (+41.84 net) |
 
-**Par:** BNB-USDT · 54 evaluaciones (lookback 96, hold 48, step 16)
+<sub>Cost = on-chain transactions (rebalances); the agent's fewer rebalances mean less gas.</sub>
 
-| Rango | Tiempo en rango | Tasa breakout | Fee-efficiency (fees/ancho) |
+<sub>Raw metrics: [`metrics/compare-aave-wbnb.json`](./metrics/compare-aave-wbnb.json)</sub>
+
+## Task 2 — Walk-forward backtest — BNB/USDT (flagship)
+
+**Pair:** BNB-USDT · 54 evaluations (lookback 96, hold 48, step 16)
+
+| Range | Time in range | Breakout rate | Fee-efficiency (fees/width) |
 |---|---:|---:|---:|
 | **IVL (μ±2σ)** | 78.1% | 50.0% | 1.85 |
-| Naive (rango ancho S..R) | 83.8% | 42.6% | 1.78 |
+| Naive (wide range S..R) | 83.8% | 42.6% | 1.78 |
 
-- **Ganancia de fee-efficiency (IVL vs naive):** **1.037×**
-- **Cuando la skill ENTRA** (score≥60 o concentrate) [4 casos]: tiempo en rango 70.8% · breakout 50.0% · fee-efficiency 1.56
+- **Fee-efficiency gain (IVL vs naive):** **1.037×**
+- **When the skill ENTERS** (score≥60 or concentrate) [4 cases]: time in range 70.8% · breakout 50.0% · fee-efficiency 1.56
+- **Cost:** simulation only — no on-chain execution, so gas cost is n/a for this task (see the AAVE/WBNB task for the measured on-chain-tx cost comparison).
 
-<sub>Métricas crudas: [`metrics/backtest-bnb-usdt.json`](./metrics/backtest-bnb-usdt.json)</sub>
+<sub>Raw metrics: [`metrics/backtest-bnb-usdt.json`](./metrics/backtest-bnb-usdt.json)</sub>
 
-## Tarea 3 — Backtest walk-forward — CAKE/WBNB (PancakeSwap-native)
+## Task 3 — Walk-forward backtest — CAKE/WBNB (PancakeSwap-native)
 
-**Par:** CAKE-WBNB · 54 evaluaciones (lookback 96, hold 48, step 16)
+**Pair:** CAKE-WBNB · 54 evaluations (lookback 96, hold 48, step 16)
 
-| Rango | Tiempo en rango | Tasa breakout | Fee-efficiency (fees/ancho) |
+| Range | Time in range | Breakout rate | Fee-efficiency (fees/width) |
 |---|---:|---:|---:|
 | **IVL (μ±2σ)** | 72.3% | 64.8% | 3055945.33 |
-| Naive (rango ancho S..R) | 83.6% | 44.4% | 2621992.43 |
+| Naive (wide range S..R) | 83.6% | 44.4% | 2621992.43 |
 
-- **Ganancia de fee-efficiency (IVL vs naive):** **1.166×**
-- La skill no entró en ninguna ventana (mercado no apto según IVL — decisión honesta).
+- **Fee-efficiency gain (IVL vs naive):** **1.166×**
+- The skill did not enter any window (market unfit per IVL — an honest abstention).
+- **Cost:** simulation only — no on-chain execution, so gas cost is n/a for this task (see the AAVE/WBNB task for the measured on-chain-tx cost comparison).
 
-<sub>Métricas crudas: [`metrics/backtest-cake-wbnb.json`](./metrics/backtest-cake-wbnb.json)</sub>
+<sub>Raw metrics: [`metrics/backtest-cake-wbnb.json`](./metrics/backtest-cake-wbnb.json)</sub>
 
-## Tarea 4 — Backtest walk-forward — ETH/USDT (major)
+## Task 4 — Walk-forward backtest — ETH/USDT (major)
 
-**Par:** ETH-USDT · 54 evaluaciones (lookback 96, hold 48, step 16)
+**Pair:** ETH-USDT · 54 evaluations (lookback 96, hold 48, step 16)
 
-| Rango | Tiempo en rango | Tasa breakout | Fee-efficiency (fees/ancho) |
+| Range | Time in range | Breakout rate | Fee-efficiency (fees/width) |
 |---|---:|---:|---:|
 | **IVL (μ±2σ)** | 85.9% | 38.9% | 0.81 |
-| Naive (rango ancho S..R) | 86.8% | 33.3% | 0.74 |
+| Naive (wide range S..R) | 86.8% | 33.3% | 0.74 |
 
-- **Ganancia de fee-efficiency (IVL vs naive):** **1.093×**
-- **Cuando la skill ENTRA** (score≥60 o concentrate) [4 casos]: tiempo en rango 100.0% · breakout 0.0% · fee-efficiency 0.54
+- **Fee-efficiency gain (IVL vs naive):** **1.093×**
+- **When the skill ENTERS** (score≥60 or concentrate) [4 cases]: time in range 100.0% · breakout 0.0% · fee-efficiency 0.54
+- **Cost:** simulation only — no on-chain execution, so gas cost is n/a for this task (see the AAVE/WBNB task for the measured on-chain-tx cost comparison).
 
-<sub>Métricas crudas: [`metrics/backtest-eth-usdt.json`](./metrics/backtest-eth-usdt.json)</sub>
+<sub>Raw metrics: [`metrics/backtest-eth-usdt.json`](./metrics/backtest-eth-usdt.json)</sub>
 
-## Veredicto
+## Verdict
 
-En los pares medidos, el rango IVL concentra la liquidez donde el mercado realmente oscila y se ensancha/retira ante tendencia — capturando más fees por unidad de capital y evitando el IL que un rango estrecho fijo sufre en un breakout. Ese diferencial es exactamente el valor que un contratante compra al **hire** del agente en el marketplace en vez de gestionar el LP a mano.
+On the measured pairs, the IVL range concentrates liquidity where the market actually oscillates and widens/withdraws ahead of trend — capturing more fees per unit of capital and avoiding the IL a fixed narrow range suffers on a breakout, while rebalancing fewer times (lower gas cost). That differential is exactly the value a hirer buys when they **hire** the agent in the marketplace instead of managing the LP by hand.
 
-<sub>Construido sobre BNB Chain · motor IVL vía su API pública · scripts: `third_city/skills/ivl/scripts/{compare,backtest}.mjs`.</sub>
+<sub>Built on BNB Chain · IVL engine via its public API · scripts: `third_city/skills/ivl/scripts/{compare,backtest}.mjs`.</sub>

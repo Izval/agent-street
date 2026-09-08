@@ -1,6 +1,6 @@
 /**
  * FeatureBlock — large editorial card to highlight an agent/collection
- * (DESIGN.md v2 §12–§14). Subtle glass + aisle accent (bar + eyebrow),
+ * (DESIGN.md v2 §12–§14). Subtle glass + category accent (bar + eyebrow),
  * sentence-case copy. Subtle hover (elevation via color/border, not a heavy shadow).
  */
 
@@ -19,7 +19,7 @@ export function FeatureBlock({
   title: string;
   description?: string;
   to: string;
-  /** Aisle accent token, e.g. `var(--accent-defi)`. */
+  /** Category accent token, e.g. `var(--accent-trading)`. */
   accent?: string;
   /** Optional visual slot (image/illustration/badge). */
   media?: ReactNode;

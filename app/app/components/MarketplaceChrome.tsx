@@ -1,11 +1,11 @@
 /**
  * MarketplaceChrome — sticky filter bar (OpenSea lineage · plan §5.2).
- * Row 1: aisle pills (All → /, each aisle → /aisle/:id) with horizontal scroll.
+ * Row 1: category pills (All → /, each category → /category/:id) with horizontal scroll.
  * Row 2: BSC network chip (static) + segmented controls (Agents/Skills/Tokens,
  * 1h/24h/7d range, grid/list, sort) that edit the route's search params.
  *
  * Loader-driven: current values arrive via props (from the loader); each control
- * writes the matching search param (useSearchParams). The aisle pills
+ * writes the matching search param (useSearchParams). The category pills
  * are <Link>s (route navigation). Sticky with reinforced blur once stuck
  * (IntersectionObserver on a sentinel → SSR-safe, only in effect).
  * A11y: role="radiogroup"/"radio" with arrow-key navigation (roving tabindex).
@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import type { KeyboardEvent, ReactNode } from "react";
-import { AISLES, type Aisle } from "../lib/taxonomy";
+import { CATEGORIES, type Category } from "../lib/taxonomy";
 import type { TrendingWindow } from "../lib/contracts";
 
 type Tab = "agents" | "skills" | "tokens";
@@ -22,7 +22,7 @@ type View = "grid" | "list";
 type Sort = "trending" | "score" | "new" | "portfolio";
 
 export interface MarketplaceChromeProps {
-  activeAisle?: Aisle;
+  activeCategory?: Category;
   view?: View;
   onViewChange?: (v: View) => void;
   tab?: Tab;
@@ -118,9 +118,9 @@ function useStuck() {
 
 // ---- Component -------------------------------------------------------- //
 
-const AISLE_PILLS: { id: Aisle; label: string }[] = AISLES.map((a) => ({
+const CATEGORY_PILLS: { id: Category; label: string }[] = CATEGORIES.map((a) => ({
   id: a.id,
-  label: a.label,
+  label: a.short ?? a.label,
 }));
 
 const TAB_OPTS: SegOption<Tab>[] = [
@@ -145,7 +145,7 @@ const SORT_OPTS: SegOption<Sort>[] = [
 ];
 
 export function MarketplaceChrome({
-  activeAisle,
+  activeCategory,
   view: viewProp,
   onViewChange,
   tab: tabProp,
@@ -184,24 +184,24 @@ export function MarketplaceChrome({
           stuck ? "glass-panel -mx-2 px-2 shadow-[var(--elev-2)]" : ""
         } ${className}`}
       >
-        {/* Row 1: category pills (level 1) */}
+        {/* Row 1: subcategory pills (level 1) */}
         <nav
-          aria-label="Filter by category"
+          aria-label="Filter by subcategory"
           className="flex items-center gap-2 overflow-x-auto pb-0.5"
         >
           <Link
             to="/"
-            aria-current={!activeAisle ? "page" : undefined}
-            className={pillCls(!activeAisle)}
+            aria-current={!activeCategory ? "page" : undefined}
+            className={pillCls(!activeCategory)}
           >
             All
           </Link>
-          {AISLE_PILLS.map((a) => (
+          {CATEGORY_PILLS.map((a) => (
             <Link
               key={a.id}
-              to={`/aisle/${a.id}`}
-              aria-current={activeAisle === a.id ? "page" : undefined}
-              className={pillCls(activeAisle === a.id)}
+              to={`/category/${a.id}`}
+              aria-current={activeCategory === a.id ? "page" : undefined}
+              className={pillCls(activeCategory === a.id)}
             >
               {a.label}
             </Link>

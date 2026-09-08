@@ -1,7 +1,7 @@
 /**
  * CollectionRow — header (title + "See all →") over a horizontal scrollable
  * rail of children (DESIGN.md v2 §11). General signature: wraps any
- * card/tile. `accent` underlines the header (aisle accent, §14) without a background.
+ * card/tile. `accent` underlines the header (category accent, §14) without a background.
  */
 
 import type { CSSProperties, ReactNode } from "react";
@@ -15,7 +15,7 @@ export function CollectionRow({
 }: {
   title: string;
   seeAllTo?: string;
-  /** Aisle accent token, e.g. `var(--accent-trading)`. */
+  /** Category accent token, e.g. `var(--accent-trading)`. */
   accent?: string;
   children: ReactNode;
 }) {

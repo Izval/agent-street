@@ -17,9 +17,23 @@ export async function loader({ request }: Route.LoaderArgs) {
   const q = (new URL(request.url).searchParams.get("q") ?? "").trim();
   if (!q) return { q, agents: [] as Agent[], total: 0 };
 
-  const agents = createAgentsClient({ baseUrl: env.PROXY_8004_URL });
-  const result = await agents.list({ search: q, limit: LIMIT });
-  return { q, agents: result.agents, total: result.pagination.total };
+  const agents = createAgentsClient({ baseUrl: env.PROXY_8004_URL, fetcher: env.PROXY_8004 });
+  // Search both BSC chains so testnet agents are discoverable too; mainnet first.
+  const [mainnet, testnet] = await Promise.all([
+    agents.list({ search: q, limit: LIMIT }),
+    agents.list({ search: q, limit: LIMIT, chain: 97 }),
+  ]);
+  const seen = new Set<string>();
+  const merged = [...mainnet.agents, ...testnet.agents].filter((a) => {
+    if (seen.has(a.agentId)) return false;
+    seen.add(a.agentId);
+    return true;
+  });
+  return {
+    q,
+    agents: merged,
+    total: mainnet.pagination.total + testnet.pagination.total,
+  };
 }
 
 export default function SearchPage({ loaderData }: Route.ComponentProps) {
@@ -62,13 +76,13 @@ export default function SearchPage({ loaderData }: Route.ComponentProps) {
       ) : agents.length ? (
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {agents.map((a: Agent) => (
-            <AgentCard key={a.id} agent={a} />
+            <AgentCard key={a.agentId} agent={a} />
           ))}
         </div>
       ) : (
         <p className="mt-8 rounded-lg border border-border bg-surface p-6 text-sm text-text-3">
           No results for "{q}". Try another term or explore by
-          category from the sidebar.
+          subcategory from the sidebar.
         </p>
       )}
     </AppShell>

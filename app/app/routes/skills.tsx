@@ -1,58 +1,55 @@
 import type { Route } from "./+types/skills";
-import { SKILLS } from "../lib/skills";
-import {
-  AISLES,
-  CATEGORIES,
-  aisleOf,
-  categoryLabel,
-  type Category,
-} from "../lib/taxonomy";
+import { loadSkillPage, parseSkillQuery } from "../lib/skills-live";
 import { AppShell } from "../components/AppShell";
-import { SkillCard } from "../components/SkillCard";
+import { SkillsBrowser } from "../components/SkillsBrowser";
 
-export function meta(_: Route.MetaArgs) {
-  return [{ title: "Skills — Agent-Street" }];
+export async function loader({ request }: Route.LoaderArgs) {
+  const url = new URL(request.url);
+  const query = parseSkillQuery(url.searchParams);
+  // Curated (Altana + IVL + CMC) + live BNB Chain Skills Hub + CryptoSkill Hub,
+  // filtered/sorted/paged on the server so each URL is a distinct crawlable page.
+  const data = await loadSkillPage(query);
+
+  // SEO: self-canonical per page + rel prev/next across the sequence.
+  const build = (page: number) => {
+    const sp = new URLSearchParams(url.searchParams);
+    if (page <= 1) sp.delete("page");
+    else sp.set("page", String(page));
+    const qs = sp.toString();
+    return `${url.origin}${url.pathname}${qs ? `?${qs}` : ""}`;
+  };
+  const seo = {
+    canonical: build(data.page),
+    prev: data.page > 1 ? build(data.page - 1) : null,
+    next: data.page < data.totalPages ? build(data.page + 1) : null,
+  };
+
+  return { data, seo };
 }
 
-export default function SkillsPage() {
-  // Categories present among the skills, in taxonomy order.
-  const cats = CATEGORIES.filter((c) => SKILLS.some((s) => s.category === c));
+export function meta({ loaderData }: Route.MetaArgs): Route.MetaDescriptors {
+  const seo = loaderData?.seo;
+  const page = loaderData?.data.page ?? 1;
+  const title =
+    page > 1 ? `Skills — page ${page} — Agent-Street` : "Skills — Agent-Street";
+  const tags: Route.MetaDescriptors = [
+    { title },
+    {
+      name: "description",
+      content:
+        "Discover and hire composable skills for ERC-8004 agents on BNB Chain — execution, yield, monitoring and analysis.",
+    },
+  ];
+  if (seo?.canonical) tags.push({ tagName: "link", rel: "canonical", href: seo.canonical });
+  if (seo?.prev) tags.push({ tagName: "link", rel: "prev", href: seo.prev });
+  if (seo?.next) tags.push({ tagName: "link", rel: "next", href: seo.next });
+  return tags;
+}
 
+export default function SkillsPage({ loaderData }: Route.ComponentProps) {
   return (
     <AppShell>
-      <header className="py-2">
-        <h1 className="text-3xl font-bold md:text-4xl">
-          Composable <span className="text-brand">skills</span>
-        </h1>
-        <p className="mt-3 max-w-2xl text-base text-text-2">
-          Modules an agent plugs in via ERC-8183 — execution, yield, monitoring
-          and range quality, composable into any agent.
-        </p>
-      </header>
-
-      {/* Grouped by category — same diversity treatment as Agents */}
-      {cats.map((c: Category) => {
-        const items = SKILLS.filter((s) => s.category === c);
-        const aisle = aisleOf(c);
-        const accent = aisle
-          ? AISLES.find((a) => a.id === aisle)?.accent
-          : undefined;
-        return (
-          <section key={c} className="mt-10">
-            <h2
-              className={"text-lg font-bold text-text" + (accent ? " border-l-2 pl-2.5" : "")}
-              style={accent ? { borderColor: accent } : undefined}
-            >
-              {categoryLabel(c)}
-            </h2>
-            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {items.map((s) => (
-                <SkillCard key={s.id} skill={s} />
-              ))}
-            </div>
-          </section>
-        );
-      })}
+      <SkillsBrowser data={loaderData.data} />
     </AppShell>
   );
 }

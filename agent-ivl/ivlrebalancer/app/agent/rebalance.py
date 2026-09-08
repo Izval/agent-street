@@ -49,6 +49,7 @@ def plan_rebalance(
     config: pv3.RebalancerConfig = pv3.DEFAULT_TESTNET_CONFIG,
     ivl_base_url: str | None = None,
     do_dry_run: bool = True,
+    anchor_live: bool | None = None,
 ) -> dict[str, Any]:
     """Lee IVL, arma el mint contra el pool real y (opcional) hace dry-run. Solo lectura.
 
@@ -94,17 +95,19 @@ def plan_rebalance(
     plan = pv3.build_mint_plan(
         w3, ivl, recipient=recipient,
         amount_base_wei=amount_base, amount_quote_wei=amount_quote,
-        config=config, deadline=int(time.time()) + 1200,
+        config=config, deadline=int(time.time()) + 1200, anchor_live=anchor_live,
     )
     report["pool"] = {
         "address": plan.pool, "token0": plan.token0, "token1": plan.token1,
         "fee": plan.fee, "tickSpacing": plan.extra.get("tick_spacing"),
         "currentTick": plan.pool_tick,
+        "livePrice": plan.live_price,
     }
     report["oriented_ticks"] = {
         "tickLower": plan.tick_lower, "tickUpper": plan.tick_upper,
         "inverted_vs_ivl": plan.inverted,
-        "in_range": plan.tick_lower <= (plan.pool_tick or 0) <= plan.tick_upper,
+        "anchored_to_live": plan.anchored,
+        "in_range": plan.in_range,
     }
 
     mint_calldata = pv3.encode_mint_calldata(w3, plan)
@@ -162,9 +165,9 @@ def _dry_run_mint(w3: Web3, plan: pv3.MintPlan, recipient: str) -> dict[str, Any
     return out
 
 
-def _ensure_approvals(w3, wallet, owner, plan: pv3.MintPlan) -> list[dict[str, Any]]:
+def _ensure_approvals(sender: pv3.SequentialSender, plan: pv3.MintPlan) -> list[dict[str, Any]]:
     """Aprueba token0/token1 al NPM si el allowance no cubre el depósito. Devuelve las txs."""
-    npm = plan.config.position_manager
+    w3, owner, npm = sender.w3, sender.owner, plan.config.position_manager
     out: list[dict[str, Any]] = []
     for token, amount, sym in (
         (plan.token0, plan.amount0_desired, "token0"),
@@ -173,34 +176,28 @@ def _ensure_approvals(w3, wallet, owner, plan: pv3.MintPlan) -> list[dict[str, A
         if amount <= 0:
             continue
         allowance = _erc20(w3, token).functions.allowance(
-            Web3.to_checksum_address(owner), Web3.to_checksum_address(npm)
+            owner, Web3.to_checksum_address(npm)
         ).call()
         if allowance >= amount:
             continue
         data = pv3.encode_approve_calldata(w3, token, npm, amount)
-        tx = pv3.build_tx(w3, plan.config, owner, token, data, gas_hint="approve")
-        tx_hash = pv3.send_tx(w3, wallet, tx)
+        tx_hash = sender.send(token, data, gas_hint="approve")
         out.append({"which": sym, "token": token, "tx_hash": tx_hash})
     return out
 
 
-def _withdraw_position(w3, wallet, owner, plan: pv3.MintPlan, pos: pv3.ExistingPosition, *, burn: bool) -> dict[str, Any]:
+def _withdraw_position(sender: pv3.SequentialSender, plan: pv3.MintPlan, pos: pv3.ExistingPosition, *, burn: bool) -> dict[str, Any]:
     """decrease(liquidity) → collect(todo) → [burn]. Deja el capital en la wallet para re-mint."""
+    w3, owner, npm = sender.w3, sender.owner, plan.config.position_manager
     deadline = int(time.time()) + 1200
     steps: dict[str, Any] = {"token_id": pos.token_id}
     dec_data = pv3.encode_decrease_calldata(w3, plan.config, pos.token_id, pos.liquidity, deadline)
-    steps["decrease_tx"] = pv3.send_tx(
-        w3, wallet, pv3.build_tx(w3, plan.config, owner, plan.config.position_manager, dec_data, gas_hint="decrease")
-    )
+    steps["decrease_tx"] = sender.send(npm, dec_data, gas_hint="decrease")
     col_data = pv3.encode_collect_calldata(w3, plan.config, pos.token_id, owner)
-    steps["collect_tx"] = pv3.send_tx(
-        w3, wallet, pv3.build_tx(w3, plan.config, owner, plan.config.position_manager, col_data, gas_hint="collect")
-    )
+    steps["collect_tx"] = sender.send(npm, col_data, gas_hint="collect")
     if burn:
         burn_data = pv3.encode_burn_calldata(w3, plan.config, pos.token_id)
-        steps["burn_tx"] = pv3.send_tx(
-            w3, wallet, pv3.build_tx(w3, plan.config, owner, plan.config.position_manager, burn_data, gas_hint="burn")
-        )
+        steps["burn_tx"] = sender.send(npm, burn_data, gas_hint="burn")
     return steps
 
 
@@ -210,6 +207,8 @@ def execute_rebalance(
     config: pv3.RebalancerConfig = pv3.DEFAULT_TESTNET_CONFIG,
     cap_base_human: float = 0.02,
     cap_quote_human: float | None = None,
+    anchor_live: bool | None = None,
+    allow_out_of_range: bool = False,
 ) -> dict[str, Any]:
     """FIRMA y broadcastea el rebalanceo. CÓDIGO FIJO, no un tool LLM.
 
@@ -222,12 +221,14 @@ def execute_rebalance(
     saldo de WBNB/USDT (tBNB envuelto) en la wallet. El agente es el ÚNICO firmante
     (``get_wallet().sign_transaction``). Devuelve los tx hashes de cada paso + el tokenId nuevo.
     """
+    pv3.load_agent_env()  # WALLET_PASSWORD desde .studio/.env.local (como hace bag)
     from bnbagent_studio_core.wallet import get_wallet  # import perezoso: exige entorno de wallet
 
     config = config.checksummed()
     wallet = get_wallet()
     owner = Web3.to_checksum_address(wallet.address)
     w3 = pv3.connect(config)
+    sender = pv3.SequentialSender(w3, wallet, config, owner)  # nonce local para toda la secuencia
 
     ticks_resp = fetch_ticks(pair, base_url="https://api.zvlint.com")
     ivl = ticks_resp.ticks
@@ -250,14 +251,23 @@ def execute_rebalance(
                                     token1=config.quote_token, fee=ivl.fee_units,
                                     tick_lower=0, tick_upper=0, amount0_desired=0, amount1_desired=0)
             result["steps"]["withdraw"] = _withdraw_position(
-                w3, wallet, owner, tmp_plan, pos, burn=(intent == "reset")
+                sender, tmp_plan, pos, burn=(intent == "reset")
             )
         else:
             result["steps"]["withdraw"] = {"skipped": "sin posición previa → se abre una nueva"}
 
-    # 2) Dimensionar el depósito con el saldo ACTUAL (ya incluye lo retirado arriba).
+    # 2) Sondear el pool (tick/orientación/precio vivo) con amounts nominales, para
+    #    dimensionar el depósito con el PRECIO VIVO en modo anchor (no el de mercado IVL).
+    probe = pv3.build_mint_plan(
+        w3, ivl, recipient=owner, amount_base_wei=0, amount_quote_wei=0,
+        config=config, deadline=int(time.time()) + 1200, anchor_live=anchor_live,
+    )
+    quote_price = probe.live_price if probe.anchored else None
+
+    # 3) Dimensionar el depósito con el saldo ACTUAL (ya incluye lo retirado arriba).
     amount_base, amount_quote = pv3.size_amounts(
-        w3, config, ivl, owner, cap_base_human=cap_base_human, cap_quote_human=cap_quote_human
+        w3, config, ivl, owner, cap_base_human=cap_base_human,
+        cap_quote_human=cap_quote_human, quote_price=quote_price,
     )
     if amount_base <= 0 and amount_quote <= 0:
         raise RuntimeError(
@@ -265,33 +275,77 @@ def execute_rebalance(
             "(ver README → handoff). El agente no simula: no hay capital que desplegar."
         )
 
-    # 3) Construir el mint contra el pool real con los ticks orientados de IVL.
+    # 4) Construir el mint real con los ticks (anclados o absolutos) de IVL.
     plan = pv3.build_mint_plan(
         w3, ivl, recipient=owner, amount_base_wei=amount_base, amount_quote_wei=amount_quote,
-        config=config, deadline=int(time.time()) + 1200,
+        config=config, deadline=int(time.time()) + 1200, anchor_live=anchor_live,
     )
+    # Guarda dura (CLAUDE.md §6.2): no mintear fuera de rango salvo override explícito.
+    # En modo anchor siempre es in-range por construcción; el guard protege el modo absoluto.
+    if not plan.in_range and not allow_out_of_range:
+        raise RuntimeError(
+            f"rango [{plan.tick_lower},{plan.tick_upper}] FUERA del tick vivo del pool "
+            f"({plan.pool_tick}) → la posición sería single-sided sin fees. Usa modo anchor "
+            f"(default testnet) o pasa allow_out_of_range=True si es deliberado."
+        )
     result["oriented_ticks"] = {
-        "tickLower": plan.tick_lower, "tickUpper": plan.tick_upper, "inverted_vs_ivl": plan.inverted,
+        "tickLower": plan.tick_lower, "tickUpper": plan.tick_upper,
+        "inverted_vs_ivl": plan.inverted, "anchored_to_live": plan.anchored,
+        "in_range": plan.in_range, "livePrice": plan.live_price,
     }
     result["amounts"] = {"amount0_desired": str(plan.amount0_desired), "amount1_desired": str(plan.amount1_desired)}
 
-    # 4) Approvals + mint.
-    result["steps"]["approvals"] = _ensure_approvals(w3, wallet, owner, plan)
+    # 4) Approvals + mint (mismo sender ⇒ nonce secuencial determinista).
+    result["steps"]["approvals"] = _ensure_approvals(sender, plan)
     mint_data = pv3.encode_mint_calldata(w3, plan)
-    mint_tx = pv3.build_tx(w3, plan.config, owner, plan.config.position_manager, mint_data, gas_hint="mint")
-    signed = wallet.sign_transaction(mint_tx)
-    raw = signed["rawTransaction"] if isinstance(signed, dict) else signed.raw_transaction
-    h = w3.eth.send_raw_transaction(raw)
-    receipt = w3.eth.wait_for_transaction_receipt(h, timeout=180)
-    mint_hash = h.hex() if isinstance(h, bytes) else str(h)
+    mint_hash = sender.send(plan.config.position_manager, mint_data, gas_hint="mint")
     result["steps"]["mint_tx"] = mint_hash
-    result["token_id"] = pv3.minted_token_id(receipt, owner)
+    result["token_id"] = pv3.minted_token_id(sender.last_receipt, owner)
     result["explorer"] = f"https://testnet.bscscan.com/tx/{mint_hash}"
     return result
 
 
-def render_deliverable(report: dict[str, Any]) -> str:
-    """Manifiesto legible del rebalanceo — lo que el seller entrega (hook ``run_work``)."""
+def live_position(
+    owner: str,
+    *,
+    fee: int = 500,
+    config: pv3.RebalancerConfig = pv3.DEFAULT_TESTNET_CONFIG,
+    pool_current_tick: int | None = None,
+) -> dict[str, Any] | None:
+    """Read the agent's CURRENT on-chain v3 position for the pool. Read-only.
+
+    Uses only the public ``owner`` address (no keystore unlock), so it is safe to
+    call from the deterministic, no-LLM deliverable hook. Returns None when the
+    owner has no live position for (base, quote, fee). ``in_range`` is computed
+    against ``pool_current_tick`` when supplied.
+    """
+    config = config.checksummed()
+    w3 = pv3.connect(config)
+    pos = pv3.find_position(w3, config, Web3.to_checksum_address(owner), fee=fee)
+    if pos is None:
+        return None
+    in_range = (
+        pool_current_tick is not None
+        and pos.tick_lower <= int(pool_current_tick) <= pos.tick_upper
+    )
+    return {
+        "token_id": pos.token_id,
+        "tick_lower": pos.tick_lower,
+        "tick_upper": pos.tick_upper,
+        "in_range": in_range,
+        "liquidity": str(pos.liquidity),
+        "owner": Web3.to_checksum_address(owner),
+        "explorer": f"https://testnet.bscscan.com/token/{config.position_manager}?a={pos.token_id}",
+    }
+
+
+def render_deliverable(report: dict[str, Any], live_pos: dict[str, Any] | None = None) -> str:
+    """Manifiesto legible del rebalanceo — lo que el seller entrega (hook ``run_work``).
+
+    Cuando ``live_pos`` viene dado (posición on-chain viva del agente), añade un
+    bloque LIVE POSITION con el tokenId, el rango on-chain, in_range y el enlace al
+    explorer — para que el comprador vea la posición real que respalda el plan.
+    """
     d = report["decision"]
     ot = report.get("oriented_ticks", {})
     lines = [
@@ -303,13 +357,25 @@ def render_deliverable(report: dict[str, Any]) -> str:
     ]
     if "pool" in report:
         p = report["pool"]
+        mode = "anchored→live" if ot.get("anchored_to_live") else "absolute (IVL)"
         lines += [
+            f"  Pool: {p['address']} fee={p['fee']} spacing={p['tickSpacing']} "
+            f"tick={p['currentTick']} livePrice={p.get('livePrice'):.4f}"
+            if p.get("livePrice") is not None else
             f"  Pool: {p['address']} fee={p['fee']} spacing={p['tickSpacing']} tick={p['currentTick']}",
             f"  Range (on-chain): [{ot.get('tickLower')}, {ot.get('tickUpper')}] "
-            f"inverted={ot.get('inverted_vs_ivl')} in_range={ot.get('in_range')}",
+            f"mode={mode} inverted={ot.get('inverted_vs_ivl')} in_range={ot.get('in_range')}",
         ]
     if "dry_run" in report:
         lines.append(f"  Dry-run: encoding_valid={report['dry_run'].get('encoding_valid')}")
+    if live_pos:
+        lines += [
+            "  Live position (on-chain):",
+            f"    tokenId {live_pos['token_id']} · range "
+            f"[{live_pos['tick_lower']}, {live_pos['tick_upper']}] · "
+            f"in_range={live_pos['in_range']} · liquidity={live_pos['liquidity']}",
+            f"    Explorer: {live_pos['explorer']}",
+        ]
     return "\n".join(lines)
 
 
@@ -332,15 +398,25 @@ def _main() -> None:
     ap.add_argument("--execute", action="store_true",
                     help="FIRMA y broadcastea (requiere wallet fondeada + WALLET_PASSWORD). Gated.")
     ap.add_argument("--cap-base", type=float, default=0.02, help="tope de BASE (WBNB) a depositar")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--anchor-live", dest="anchor_live", action="store_true", default=None,
+                      help="ancla el ancho IVL al tick vivo del pool (default en testnet)")
+    mode.add_argument("--absolute-ticks", dest="anchor_live", action="store_false",
+                      help="usa los ticks absolutos de IVL (default/correcto en mainnet)")
+    ap.add_argument("--allow-out-of-range", action="store_true",
+                    help="permite mintear fuera de rango (single-sided) — deliberado, se salta la guarda")
     args = ap.parse_args()
 
     if args.execute:
         # Broadcast real: gated por credenciales. Nunca simula.
-        result = execute_rebalance(args.pair, cap_base_human=args.cap_base)
+        result = execute_rebalance(
+            args.pair, cap_base_human=args.cap_base,
+            anchor_live=args.anchor_live, allow_out_of_range=args.allow_out_of_range,
+        )
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return
 
-    report = plan_rebalance(args.pair, recipient=args.recipient)
+    report = plan_rebalance(args.pair, recipient=args.recipient, anchor_live=args.anchor_live)
     if args.json:
         print(json.dumps(report, indent=2, ensure_ascii=False))
     else:
