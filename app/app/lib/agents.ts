@@ -59,6 +59,24 @@ export type AgentDetailRaw = Agent & {
   services: AgentServices | null;
 };
 
+/**
+ * Compact agent shape served by the proxy's GET /v1/index. The whole corpus
+ * (≤~1500) in one payload, display/search fields only — the ⌘K palette downloads
+ * it once and filters client-side (see lib/agentsIndex.ts). Mirrors the worker's
+ * `IndexAgent` in workers/8004-proxy/src/index.ts.
+ */
+export interface IndexAgent {
+  id: string;
+  name: string;
+  subcategory: Subcategory | null;
+  subcategoryLabel: string | null;
+  imageUrl?: string;
+  score: number;
+  network: "testnet" | "mainnet";
+  chainId: number;
+  agentId: string;
+}
+
 export interface Pagination {
   page: number;
   limit: number;
@@ -238,7 +256,19 @@ export function createAgentsClient(opts: {
     return null;
   }
 
-  return { baseUrl: base, list, get, getDetail };
+  /** The full compact agent index (corpus ∪ submitted) in one payload. [] on failure. */
+  async function index(): Promise<IndexAgent[]> {
+    try {
+      const res = await doFetch(`${base}/v1/index`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? (data as IndexAgent[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return { baseUrl: base, list, get, getDetail, index };
 }
 
 export type AgentsClient = ReturnType<typeof createAgentsClient>;

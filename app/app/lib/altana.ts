@@ -16,6 +16,18 @@
  *   - The SESSION key is a generated secp256k1 key persisted client-side; it
  *     signs the hires (execute) with no biometric prompt, bounded by the cap.
  *
+ * TWO-PHASE GRANT (the funding gate is real): creating the passkey wallet is
+ * counterfactual (no tx, no funds), but `grantSession` pays a keystore
+ * registration fee + gas from the smart-account, which must therefore hold
+ * testnet BNB first. The smart-account address is derived from the passkey, so
+ * it cannot be funded before the passkey exists. We split the flow:
+ *   1. `beginSession` — create the passkey wallet, persist a DRAFT, return the
+ *      address so the user can fund it (faucet).
+ *   2. `finalizeSession` — once funded, grant on-chain reusing the SAME draft
+ *      (same passkey, same session key), then persist the granted session.
+ * This also makes a failed/abandoned grant recoverable: the draft (address +
+ * passkey) survives, so funding + retry reuses it instead of orphaning funds.
+ *
  * This is a GENERIC marketplace feature (works for any listing) — it is not
  * coupled to any specific agent (CLAUDE.md §2). Honesty (DESIGN.md §18): tx
  * hashes are surfaced only when the relay reports one.
@@ -25,7 +37,7 @@
  * bundle; only `import type` (erased) is top-level.
  */
 
-import { encodeFunctionData } from "viem";
+import { encodeFunctionData, formatUnits } from "viem";
 import type { Address, Hex } from "viem";
 import type {
   Session,
@@ -34,7 +46,7 @@ import type {
 } from "@altananetwork/sdk";
 import type { SpendCap } from "./contracts";
 
-const STORE_VERSION = 1;
+const STORE_VERSION = 2;
 const lsKey = (owner: string) =>
   `altana.session.v${STORE_VERSION}.${owner.toLowerCase()}`;
 
@@ -42,19 +54,34 @@ const lsKey = (owner: string) =>
 export interface StoredAltanaSession {
   /** The Altana smart-account the session acts on. */
   walletAddress: Address;
-  /** Passkey handle (JSON-safe) → rebuilds the admin signer for revoke. */
+  /** Passkey handle (JSON-safe) → rebuilds the admin signer for grant/revoke. */
   passkeyCredential: PasskeyCredential;
   /** Generated session private key (signs hires). */
   sessionKey: Hex;
-  /** JSON-safe serialized session (no key material). */
-  serializedSession: unknown;
-  /** Session public key = the on-chain id / revocation handle. */
-  sessionPublicKey: string;
-  /** Unix epoch seconds. */
-  expiry: number;
+  /** false while a DRAFT (passkey created, not yet granted on-chain). */
+  granted: boolean;
+  /** JSON-safe serialized session (no key material). null while a draft. */
+  serializedSession: unknown | null;
+  /** Session public key = the on-chain id / revocation handle. null while a draft. */
+  sessionPublicKey: string | null;
+  /** Spend caps (limitBase in the token's base units). */
+  caps: SpendCap[];
   /** Agent ids this session may hire (empty = any). */
   allowlist: string[];
+  /** Intended lifetime in hours; the absolute expiry is stamped at grant time. */
+  expiryHours: number;
+  /** Absolute expiry (unix seconds). 0 while a draft (not yet granted). */
+  expiry: number;
   network: string;
+}
+
+/** A CreateSessionResult is what the grant (`finalizeSession`) returns. */
+export interface CreateSessionResult {
+  walletAddress: Address;
+  sessionPublicKey: string;
+  /** null if the relay confirmed the grant without surfacing a receipt. */
+  grantTxHash: string | null;
+  expiry: number;
 }
 
 // --- Local persistence (guarded for SSR) --------------------------------- //
@@ -87,12 +114,18 @@ function clearStore(owner: string): void {
   }
 }
 
-/** The stored session for an owner if it exists and hasn't expired, else null. */
+/** The stored session for an owner if it exists, GRANTED, and unexpired, else null. */
 export function getActiveSession(owner: string): StoredAltanaSession | null {
   const s = readStore(owner);
-  if (!s) return null;
+  if (!s || !s.granted) return null;
   if (s.expiry && Math.floor(Date.now() / 1000) >= s.expiry) return null;
   return s;
+}
+
+/** A DRAFT (passkey created, not yet granted) awaiting funding + grant, else null. */
+export function getDraftSession(owner: string): StoredAltanaSession | null {
+  const s = readStore(owner);
+  return s && !s.granted ? s : null;
 }
 
 /** Whether this hire is covered by the active session's allowlist. */
@@ -137,38 +170,32 @@ const isNativeAsset = (asset: string) =>
 
 // --- Public operations --------------------------------------------------- //
 
-export interface CreateSessionInput {
+export interface BeginSessionInput {
   /** Connected EOA — the marketplace identity these records key under. */
   owner: string;
   /** Spend caps (limitBase in the token's base units). */
   caps: SpendCap[];
   /** Agent ids the session may hire (empty = any listing). */
   allowlist: string[];
-  /** Unix epoch seconds when the session expires. */
-  expirySec: number;
+  /** Session lifetime in hours (absolute expiry is stamped at grant time). */
+  expiryHours: number;
   /** Passkey display name. */
   appName?: string;
 }
 
-export interface CreateSessionResult {
-  walletAddress: Address;
-  sessionPublicKey: string;
-  /** null if the relay confirmed the grant without surfacing a receipt. */
-  grantTxHash: string | null;
-  expiry: number;
-}
-
 /**
- * Create the Altana smart-account (passkey — biometric prompt), generate a
- * session key, grant the scoped session on-chain, and persist it locally.
+ * Phase 1 — create the passkey-controlled Altana smart-account (biometric
+ * prompt) and generate a session key, then persist a DRAFT. NO on-chain tx and
+ * NO funds needed: the address is counterfactual. Returns the address so the
+ * caller can fund it (faucet) before `finalizeSession` grants on-chain.
  */
-export async function createSession(
-  input: CreateSessionInput,
-): Promise<CreateSessionResult> {
+export async function beginSession(
+  input: BeginSessionInput,
+): Promise<{ walletAddress: Address }> {
   const s = await sdk();
   const c = await client();
 
-  // Passkey-controlled smart wallet (biometric prompt).
+  // Passkey-controlled smart wallet (biometric prompt). Counterfactual: no tx.
   const wallet = await c.createPasskeyWallet({
     name: input.appName ?? "Agent-Street",
   });
@@ -176,39 +203,100 @@ export async function createSession(
   // Session signer: a generated key we own and persist (so hires don't re-prompt).
   const sessionSigner = s.createPrivateKeySigner();
 
+  writeStore(input.owner, {
+    walletAddress: wallet.address,
+    passkeyCredential: wallet.signer.credential,
+    sessionKey: (sessionSigner as { _privateKey: Hex })._privateKey,
+    granted: false,
+    serializedSession: null,
+    sessionPublicKey: null,
+    caps: input.caps,
+    allowlist: input.allowlist,
+    expiryHours: input.expiryHours,
+    expiry: 0,
+    network: "bsc-testnet",
+  });
+
+  return { walletAddress: wallet.address };
+}
+
+/**
+ * Native (tBNB) balance of the draft/active smart-account, in wei + formatted.
+ * Null if there is no stored wallet for this owner. Used by the UI to tell the
+ * user whether the account is funded enough to grant.
+ */
+export async function walletBalance(
+  owner: string,
+): Promise<{ wei: string; formatted: string; address: Address } | null> {
+  const stored = readStore(owner);
+  if (!stored) return null;
+  const c = await client();
+  const res = await c.balances({ wallet: { address: stored.walletAddress } });
+  return {
+    wei: res.native.toString(),
+    formatted: formatUnits(res.native, 18),
+    address: stored.walletAddress,
+  };
+}
+
+/**
+ * Phase 2 — grant the scoped session on-chain, reusing the draft's passkey +
+ * session key (biometric prompt to sign the grant). The smart-account must be
+ * funded first (see `walletBalance`). Persists the granted session locally.
+ */
+export async function finalizeSession(
+  owner: string,
+): Promise<CreateSessionResult> {
+  const s = await sdk();
+  const c = await client();
+  const draft = readStore(owner);
+  if (!draft) throw new Error("no_draft_session");
+  if (draft.granted) {
+    // Already granted (double-submit): return the recorded result.
+    return {
+      walletAddress: draft.walletAddress,
+      sessionPublicKey: draft.sessionPublicKey ?? "",
+      grantTxHash: null,
+      expiry: draft.expiry,
+    };
+  }
+
+  const adminSigner = s.signerFromPasskey(draft.passkeyCredential);
+  const sessionSigner = s.signerFromPrivateKey(draft.sessionKey);
+
   const permissions = {
-    spend: input.caps.map((cap) => ({
+    spend: draft.caps.map((cap) => ({
       limit: BigInt(cap.limitBase),
       period: cap.period,
       ...(cap.token ? { token: cap.token as Address } : {}),
     })),
   };
 
+  const expirySec =
+    Math.floor(Date.now() / 1000) + Math.max(1, draft.expiryHours) * 3600;
+
   const granted = await c.grantSession({
-    wallet,
-    signer: wallet.signer,
+    wallet: { address: draft.walletAddress },
+    signer: adminSigner,
     permissions,
-    expiry: input.expirySec,
+    expiry: expirySec,
     sessionSigner,
     register: true, // keystore-registered → verifiable on-chain (explorer-visible)
   });
 
-  writeStore(input.owner, {
-    walletAddress: wallet.address,
-    passkeyCredential: wallet.signer.credential,
-    sessionKey: (sessionSigner as { _privateKey: Hex })._privateKey,
+  writeStore(owner, {
+    ...draft,
+    granted: true,
     serializedSession: s.serializeSession(granted),
     sessionPublicKey: granted.publicKey,
-    expiry: input.expirySec,
-    allowlist: input.allowlist,
-    network: "bsc-testnet",
+    expiry: expirySec,
   });
 
   return {
-    walletAddress: wallet.address,
+    walletAddress: draft.walletAddress,
     sessionPublicKey: granted.publicKey,
     grantTxHash: granted.transactionHash ?? null,
-    expiry: input.expirySec,
+    expiry: expirySec,
   };
 }
 
@@ -231,7 +319,8 @@ export async function executeHire(
   const s = await sdk();
   const c = await client();
   const stored = getActiveSession(input.owner);
-  if (!stored) throw new Error("no_active_session");
+  if (!stored || !stored.serializedSession)
+    throw new Error("no_active_session");
 
   const sessionSigner = s.signerFromPrivateKey(stored.sessionKey);
   const session: Session = s.deserializeSession(
@@ -268,7 +357,8 @@ export async function revokeActiveSession(
   const s = await sdk();
   const c = await client();
   const stored = readStore(owner);
-  if (!stored) throw new Error("no_session");
+  if (!stored || !stored.granted || !stored.sessionPublicKey)
+    throw new Error("no_session");
 
   const adminSigner = s.signerFromPasskey(stored.passkeyCredential);
   const res = await c.revokeSession({
@@ -282,4 +372,10 @@ export async function revokeActiveSession(
     sessionPublicKey: stored.sessionPublicKey,
     revokeTxHash: res.transactionHash ?? null,
   };
+}
+
+/** Discard a draft (passkey created but never granted) for this owner. */
+export function discardDraft(owner: string): void {
+  const s = readStore(owner);
+  if (s && !s.granted) clearStore(owner);
 }

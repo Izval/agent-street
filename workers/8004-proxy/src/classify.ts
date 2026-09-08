@@ -92,7 +92,7 @@ export const SUBCATEGORY_DEFS: SubcategoryDef[] = [
     template: "clmm",
     required: true,
     search: "rebalance",
-    kw: /\b(rebalanc|liquidity\s*range|concentrated\s*liquidity|\bclmm\b|reposition|\blp\b|tick|ivl|range\s*order)\b/i,
+    kw: /\b(rebalanc|liquidity\s*range|concentrated\s*liquidity|\bclmm\b|reposition|ivl|range\s*order)\b/i,
   },
   {
     id: "yield",
@@ -101,7 +101,7 @@ export const SUBCATEGORY_DEFS: SubcategoryDef[] = [
     template: "yield",
     required: true,
     search: "yield",
-    kw: /\b(yield|apy|apr|farm|vault|auto-?compound|optimi[sz])\b/i,
+    kw: /\b(yield|apy|apr|farm|vault|auto-?compound)\b/i,
   },
   {
     id: "health",
@@ -110,7 +110,7 @@ export const SUBCATEGORY_DEFS: SubcategoryDef[] = [
     template: "health",
     required: true,
     search: "liquidation",
-    kw: /\b(health\s*factor|liquidation|collateral|risk\s*monitor|guard|solvenc|\bltv\b)\b/i,
+    kw: /\b(health\s*factor|liquidation|collateral|risk\s*monitor|solvenc|\bltv\b)\b/i,
   },
   {
     id: "grid",
@@ -204,7 +204,7 @@ export const SUBCATEGORY_DEFS: SubcategoryDef[] = [
     category: "trading",
     template: "trading",
     search: "momentum",
-    kw: /\b(momentum|trend|breakout|signal\s*trad|alpha)\b/i,
+    kw: /\b(momentum|trend|breakout|signal\s*trad)\b/i,
   },
   {
     id: "social-signals",

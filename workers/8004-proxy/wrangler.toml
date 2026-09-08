@@ -41,7 +41,8 @@ MIN_CAPITAL_USD = "1"   # capital USD como ESCAPE (OR), no requisito; 0 lo desac
 DROP_UNMEASURED = "0"   # "1" ⇒ descarta también los no medibles (arriesga vaciar grid)
 # Construcción del corpus (cron rotatorio; el feed anónimo tiene rate-limit bajo).
 CORPUS_PAGES = "8"           # páginas globales top-score (limit=100) en el ciclo
-CORPUS_FETCH_PER_TICK = "4"  # jobs a 8004scan por tick (bajo el límite anónimo ~10/min)
+CORPUS_NEWEST_PAGES = "2"    # páginas por created_at desc → agentes NUEVOS entran y se gatean
+CORPUS_FETCH_PER_TICK = "6"  # jobs a 8004scan por tick (~42 jobs: 1 search por subcat; ciclo ~35min)
 ENRICH_BUDGET = "60"         # agentes a enriquecer por corrida (incremental)
 # Fallback si no se usa el service binding de arriba:
 # ONCHAIN_INDEXER_URL = "https://agent-street-onchain-indexer.zevlat.workers.dev"

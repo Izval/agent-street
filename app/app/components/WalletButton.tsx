@@ -3,8 +3,9 @@
  * (DESIGN.md: scarce yellow pill, only for the CTA). States:
  *   - disconnected → "Connect" (brand pill).
  *   - wrong network → "Wrong network" (data red) that forces a switch to BSC testnet.
- *   - connected → chip (profile) that opens a context MENU: My agents · Copy
- *     address · View on explorer · Switch network · Disconnect.
+ *   - connected → chip (profile) that opens a context MENU: My agents · Saved ·
+ *     Copy address · View on explorer · Details · a testnet/mainnet network
+ *     switch · Disconnect.
  *
  * SSR-safe: RainbowKit exposes `mounted`; the menu is handled with client state
  * (click-outside + Escape) and does not touch window in render.
@@ -13,21 +14,61 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { useDisconnect } from "wagmi";
+import { useChainId, useDisconnect, useSwitchChain } from "wagmi";
 
 import { useSavedAgents } from "../lib/saved";
+import { NETWORKS } from "../lib/wallet/config";
 
 const EXPLORER = "https://testnet.bscscan.com";
+
+/** Segmented testnet ↔ mainnet toggle; switches the connected wallet chain. */
+function NetworkSwitch() {
+  const chainId = useChainId();
+  const { switchChain, isPending } = useSwitchChain();
+
+  return (
+    <div className="px-1 py-1.5">
+      <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-3">
+        Network
+      </div>
+      <div
+        role="radiogroup"
+        aria-label="Network"
+        className="flex gap-1 rounded-[8px] bg-bg p-1"
+      >
+        {NETWORKS.map((net) => {
+          const active = chainId === net.id;
+          return (
+            <button
+              key={net.id}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              disabled={active || isPending}
+              onClick={() => switchChain({ chainId: net.id })}
+              className={
+                "flex-1 rounded-[6px] px-2 py-1.5 text-[13px] font-semibold transition-colors " +
+                (active
+                  ? "bg-surface-2 text-text shadow-sm"
+                  : "text-text-3 hover:text-text disabled:opacity-50")
+              }
+            >
+              {net.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function ProfileMenu({
   address,
   displayName,
-  openChainModal,
   openAccountModal,
 }: {
   address: string;
   displayName: string;
-  openChainModal: () => void;
   openAccountModal: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -84,7 +125,7 @@ function ProfileMenu({
       {open && (
         <div
           role="menu"
-          className="glass absolute right-0 z-50 mt-2 w-52 rounded-[10px] border border-border p-1 shadow-lg"
+          className="absolute right-0 z-50 mt-2 w-56 rounded-[10px] border border-border bg-surface p-1 shadow-xl"
         >
           <Link
             to="/me"
@@ -125,23 +166,14 @@ function ProfileMenu({
             role="menuitem"
             onClick={() => {
               setOpen(false);
-              openChainModal();
-            }}
-            className={item}
-          >
-            <span aria-hidden>⇄</span> Switch network
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
               openAccountModal();
             }}
             className={item}
           >
             <span aria-hidden>ⓘ</span> Details
           </button>
+          <div className="my-1 border-t border-border" />
+          <NetworkSwitch />
           <div className="my-1 border-t border-border" />
           <button
             type="button"
@@ -208,7 +240,6 @@ export function WalletButton() {
           <ProfileMenu
             address={account.address}
             displayName={account.displayName}
-            openChainModal={openChainModal}
             openAccountModal={openAccountModal}
           />
         );

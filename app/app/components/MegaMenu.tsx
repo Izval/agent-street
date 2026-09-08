@@ -28,11 +28,20 @@ import {
   type Category,
   type Subcategory,
 } from "../lib/taxonomy";
-import { coverStyle } from "../lib/cover";
 
 const REQUIRED = new Set<Subcategory>(REQUIRED_SUBCATEGORIES);
 const OPEN_DELAY = 120;
 const CLOSE_DELAY = 90;
+
+/**
+ * Skills is a peer destination (the whole Skills tab), not a taxonomy category.
+ * Unlike the categories it has no reliable sub-classification yet, so its trigger
+ * is a plain link straight to /skills (no mega-panel) — still part of the roving
+ * keyboard nav via the trailing slot in `triggers`.
+ */
+const SKILLS_NAV = { label: "Skills", glyph: "❖" };
+/** Category triggers + the trailing Skills link. */
+const NAV_COUNT = CATEGORIES.length + 1;
 
 export function MegaMenu({
   activeCategory,
@@ -106,8 +115,8 @@ export function MegaMenu({
     const idx = triggers.current.findIndex((t) => t === document.activeElement);
     if (idx < 0) return;
     let next = idx;
-    if (e.key === "ArrowRight") next = (idx + 1) % CATEGORIES.length;
-    else if (e.key === "ArrowLeft") next = (idx - 1 + CATEGORIES.length) % CATEGORIES.length;
+    if (e.key === "ArrowRight") next = (idx + 1) % NAV_COUNT;
+    else if (e.key === "ArrowLeft") next = (idx - 1 + NAV_COUNT) % NAV_COUNT;
     else return;
     e.preventDefault();
     triggers.current[next]?.focus();
@@ -171,6 +180,27 @@ export function MegaMenu({
             </Link>
           );
         })}
+
+        {/* Skills — a peer destination (whole tab), set apart from the category
+            strip by a divider. Plain link straight to /skills (no mega-panel):
+            skills have no reliable sub-classification to surface yet. */}
+        <Link
+          to="/skills"
+          ref={(el) => {
+            triggers.current[CATEGORIES.length] = el;
+          }}
+          onFocus={() => setOpen(null)}
+          className="relative ml-1.5 flex shrink-0 items-center gap-1.5 rounded-[6px] border-l border-border py-2 pl-3.5 pr-3 font-mono text-[13px] font-medium tracking-tight text-text-2 transition-colors hover:text-text"
+        >
+          <span
+            aria-hidden
+            className="text-[11px] leading-none"
+            style={{ color: "var(--brand)" }}
+          >
+            {SKILLS_NAV.glyph}
+          </span>
+          {SKILLS_NAV.label}
+        </Link>
       </nav>
 
       {/* Shared mega-panel (body portal, full-bleed under the strip). */}
@@ -186,21 +216,30 @@ export function MegaMenu({
                 top,
                 left: 0,
                 right: 0,
-                ...coverStyle(openCategoryDef.id, openCategoryDef.accent),
+                backgroundColor: "var(--bg)",
               }}
               className="flyin z-40 overflow-hidden border-b border-border shadow-[inset_0_1px_0_rgba(255,255,255,0.08),var(--elev-hero)]"
             >
-              {/* Legibility scrim — darker on the left where the links sit,
-                  fading right so the subcategory art breathes. */}
+              {/* Full-bleed bento art — same 3D-crystal AVIF as the hero tiles. */}
+              <img
+                src={`/img/bento/${openCategoryDef.id}.avif`}
+                alt=""
+                aria-hidden
+                loading="lazy"
+                decoding="async"
+                className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover object-right opacity-95"
+              />
+              {/* Legibility scrim — holds both link columns dark on the left and
+                  only breathes on the right third, where the identity/CTA sit. */}
               <span
                 aria-hidden
                 className="pointer-events-none absolute inset-0"
                 style={{
                   background:
-                    "linear-gradient(90deg, rgba(11,14,17,0.92) 0%, rgba(11,14,17,0.62) 42%, rgba(11,14,17,0.22) 100%)",
+                    "linear-gradient(90deg, rgba(11,14,17,0.95) 0%, rgba(11,14,17,0.9) 52%, rgba(11,14,17,0.35) 78%, rgba(11,14,17,0.12) 100%)",
                 }}
               />
-              {/* Oversized category glyph watermark. */}
+              {/* Oversized glyph watermark. */}
               <span
                 aria-hidden
                 className="pointer-events-none absolute -right-8 top-1/2 -translate-y-1/2 select-none text-[13rem] leading-none opacity-[0.12]"

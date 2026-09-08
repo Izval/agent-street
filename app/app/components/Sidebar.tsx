@@ -197,6 +197,12 @@ export function Sidebar({
       {/* CTAs: hire (marketplace) / build (BNB Agent Studio) */}
       <div className="flex flex-col gap-2 px-1">
         <Link
+          to="/skills"
+          className="flex min-h-[40px] items-center justify-center gap-1.5 rounded-[999px] border border-border px-4 text-sm font-semibold text-text-2 transition-colors hover:border-brand hover:text-text"
+        >
+          <span aria-hidden className="text-brand">❖</span> Skills
+        </Link>
+        <Link
           to="/portfolios"
           className="flex min-h-[40px] items-center justify-center rounded-[999px] border border-border px-4 text-sm font-semibold text-text-2 transition-colors hover:border-brand hover:text-text"
         >

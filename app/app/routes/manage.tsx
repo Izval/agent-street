@@ -8,7 +8,11 @@ import type { Route } from "./+types/manage";
 import type { Session, SpendCap, SpendPeriod } from "../lib/contracts";
 import { createSessionsClient } from "../lib/sessions-client";
 import {
-  createSession,
+  beginSession,
+  finalizeSession,
+  walletBalance,
+  getDraftSession,
+  discardDraft,
   revokeActiveSession,
   type CreateSessionResult,
 } from "../lib/altana";
@@ -24,6 +28,7 @@ export function meta(_: Route.MetaArgs) {
 // "view in the keystore explorer" link. Not a key.
 const KEYSTORE = "0x6b8361C29d05D498b1a12B54A37310f94171E94A";
 const EXPLORER = "https://testnet.bscscan.com";
+const FAUCET = "https://testnet.bnbchain.org/faucet-smart";
 
 // Tokens offered for the spend cap on testnet (USDT is the marketplace settle token).
 const TOKENS = {
@@ -251,9 +256,25 @@ export default function Manage({ loaderData }: Route.ComponentProps) {
   const [period, setPeriod] = useState<SpendPeriod>("day");
   const [expiryHours, setExpiryHours] = useState("24");
   const [phase, setPhase] = useState<
-    "idle" | "passkey" | "granting" | "recording"
+    "idle" | "creating" | "granting" | "recording"
   >("idle");
   const [error, setError] = useState<string | null>(null);
+
+  // Two-phase grant: a DRAFT (passkey + address) awaits funding before the
+  // on-chain grant. `draftAddr` is the smart-account to fund; null = no draft.
+  const [draftAddr, setDraftAddr] = useState<string | null>(null);
+  const [balance, setBalance] = useState<string | null>(null);
+  const [checkingBal, setCheckingBal] = useState(false);
+
+  // On mount / owner change, surface any draft awaiting a grant (survives reload).
+  useEffect(() => {
+    if (!address) {
+      setDraftAddr(null);
+      return;
+    }
+    const d = getDraftSession(address);
+    setDraftAddr(d ? d.walletAddress : null);
+  }, [address]);
 
   // Sync the connected wallet with ?address= so the loader lists this identity's sessions.
   useEffect(() => {
@@ -271,7 +292,9 @@ export default function Manage({ loaderData }: Route.ComponentProps) {
   const busy = phase !== "idle" || fetcher.state !== "idle";
   const actionError = fetcher.data?.error ?? null;
 
-  async function onGrant() {
+  // Phase 1 — create the passkey smart-account (counterfactual, no funds), then
+  // surface its address so the user can fund it before granting.
+  async function onBegin() {
     if (!address) return;
     setError(null);
     const meta = TOKENS[token];
@@ -296,14 +319,52 @@ export default function Manage({ loaderData }: Route.ComponentProps) {
       },
     ];
     const hours = Math.max(1, Number(expiryHours) || 24);
-    const expirySec = Math.floor(Date.now() / 1000) + hours * 3600;
     const allowlist = agent ? [agent] : [];
 
     try {
-      setPhase("passkey");
+      setPhase("creating");
+      const { walletAddress } = await beginSession({
+        owner: address,
+        caps,
+        allowlist,
+        expiryHours: hours,
+      });
+      setDraftAddr(walletAddress);
+      setBalance(null);
+      setPhase("idle");
+    } catch (e) {
+      setError(humanizeError(e));
+      setPhase("idle");
+    }
+  }
+
+  async function onCheckBalance() {
+    if (!address) return;
+    setCheckingBal(true);
+    try {
+      const b = await walletBalance(address);
+      setBalance(b ? b.formatted : null);
+    } catch {
+      setBalance(null);
+    } finally {
+      setCheckingBal(false);
+    }
+  }
+
+  // Phase 2 — grant on-chain (reuses the funded draft), then record the session.
+  async function onFinalize() {
+    if (!address) return;
+    setError(null);
+    // The caps/allowlist recorded are the draft's own (what was actually granted),
+    // read before finalize flips it to granted.
+    const draft = getDraftSession(address);
+    const caps = draft?.caps ?? [];
+    const allowlist = draft?.allowlist ?? [];
+    try {
+      setPhase("granting");
       let res: CreateSessionResult;
       try {
-        res = await createSession({ owner: address, caps, allowlist, expirySec });
+        res = await finalizeSession(address);
       } finally {
         setPhase("idle");
       }
@@ -321,11 +382,21 @@ export default function Manage({ loaderData }: Route.ComponentProps) {
         },
         { method: "post" },
       );
+      setDraftAddr(null);
+      setBalance(null);
       setPhase("idle");
     } catch (e) {
       setError(humanizeError(e));
       setPhase("idle");
     }
+  }
+
+  function onDiscardDraft() {
+    if (!address) return;
+    discardDraft(address);
+    setDraftAddr(null);
+    setBalance(null);
+    setError(null);
   }
 
   async function onRevoke(s: Session) {

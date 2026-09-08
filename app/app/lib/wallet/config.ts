@@ -20,12 +20,25 @@
 import { connectorsForWallets } from "@rainbow-me/rainbowkit";
 import { injectedWallet } from "@rainbow-me/rainbowkit/wallets";
 import { createConfig, http } from "wagmi";
-import { bscTestnet } from "wagmi/chains";
+import { bsc, bscTestnet } from "wagmi/chains";
 
+/**
+ * Hire settlement always lands on BSC **testnet** (the initial pair is
+ * BNB-USDT, CLAUDE.md §5). Mainnet is added below only so the wallet can toggle
+ * between the two networks from the profile menu — the hire flow still forces
+ * `PAYMENT_CHAIN` before paying, so switching to mainnet never mis-settles.
+ */
 export const PAYMENT_CHAIN = bscTestnet;
 
-/** Public testnet RPC (keyless) used by wagmi's reads/writes. */
+/** Networks the wallet may switch between, shown as the testnet/mainnet toggle. */
+export const NETWORKS = [
+  { id: bscTestnet.id, label: "Testnet" },
+  { id: bsc.id, label: "Mainnet" },
+] as const;
+
+/** Public RPCs (keyless) used by wagmi's reads/writes. */
 const TESTNET_RPC = "https://data-seed-prebsc-1-s1.bnbchain.org:8545";
+const MAINNET_RPC = "https://bsc-dataseed.bnbchain.org";
 
 // One injected entry, no WalletConnect connector → no AppKit init, no Reown 403.
 // `projectId` is required by the type but unused here (no WC-based wallet exists).
@@ -35,10 +48,11 @@ const connectors = connectorsForWallets(
 );
 
 export const wagmiConfig = createConfig({
-  chains: [bscTestnet],
+  chains: [bscTestnet, bsc],
   connectors,
   transports: {
     [bscTestnet.id]: http(TESTNET_RPC),
+    [bsc.id]: http(MAINNET_RPC),
   },
   ssr: true,
 });

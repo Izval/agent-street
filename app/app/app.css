@@ -239,6 +239,8 @@ html[data-theme="dark"] {
   --frost-bg: rgba(255, 255, 255, 0.6);
   --frost-border: rgba(0, 0, 0, 0.08);
   --frost-highlight: rgba(255, 255, 255, 0.7);
+  /* Command palette: nearly opaque so results stay legible over any page. */
+  --search-frost-bg: rgba(255, 255, 255, 0.94);
   --panel-bg: rgba(250, 250, 250, 0.7);
   --panel-border: rgba(0, 0, 0, 0.06);
   --hair-bg: rgba(245, 245, 245, 0.6);
@@ -256,6 +258,7 @@ html[data-theme="dark"] {
   --frost-bg: rgba(11, 14, 17, 0.55);
   --frost-border: rgba(255, 255, 255, 0.1);
   --frost-highlight: rgba(255, 255, 255, 0.12);
+  --search-frost-bg: rgba(11, 14, 17, 0.9);
   --panel-bg: rgba(24, 26, 32, 0.6);
   --panel-border: rgba(255, 255, 255, 0.07);
   --hair-bg: rgba(30, 35, 41, 0.5);
@@ -272,6 +275,7 @@ html[data-theme="dark"] {
     --frost-bg: rgba(11, 14, 17, 0.55);
     --frost-border: rgba(255, 255, 255, 0.1);
     --frost-highlight: rgba(255, 255, 255, 0.12);
+    --search-frost-bg: rgba(11, 14, 17, 0.9);
     --panel-bg: rgba(24, 26, 32, 0.6);
     --panel-border: rgba(255, 255, 255, 0.07);
     --hair-bg: rgba(30, 35, 41, 0.5);
@@ -299,6 +303,11 @@ html[data-theme="dark"] {
   border: 1px solid var(--hair-border);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+}
+/* Command palette override: keep the frost blur/border but a near-opaque
+   background so results stay legible over busy pages (overrides --frost-bg). */
+.search-frost {
+  background-color: var(--search-frost-bg);
 }
 
 /* Per-category background gradients (CategoryTile). color-mix → tinted dark. */

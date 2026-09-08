@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Form, Link, useRouteLoaderData } from "react-router";
+import { Link, useRouteLoaderData } from "react-router";
 import { MegaMenu } from "./MegaMenu";
 import { NoveltyBar } from "./NoveltyBar";
 import { Footer } from "./Footer";
@@ -20,6 +20,7 @@ import { LaunchTicker, type LaunchItem } from "./LaunchTicker";
 import { Sidebar } from "./Sidebar";
 import { WalletButton } from "./WalletButton";
 import { CommandPalette } from "./CommandPalette";
+import { openCommandPalette } from "./SearchCommand";
 import { ComparePill } from "./ComparePill";
 import type { Category, Subcategory } from "../lib/taxonomy";
 
@@ -118,20 +119,36 @@ export function AppShell({
             {/* Mobile: spacer pushes search/wallet to the right */}
             <div className="flex-1 lg:hidden" />
 
-            <Form
-              method="get"
-              action="/search"
-              role="search"
-              className="hidden sm:block"
+            {/* Search trigger — a button, not an input: it opens the one ⌘K
+                palette (same brain as the keyboard shortcut) rather than a
+                second, separate search. */}
+            <button
+              type="button"
+              onClick={() => openCommandPalette()}
+              aria-label="Search agents and skills"
+              className="group hidden min-h-[40px] w-40 items-center gap-2 rounded-[999px] border border-white/10 bg-surface-2/90 pl-3.5 pr-2 text-sm text-white/55 outline-none backdrop-blur-md transition-colors hover:border-white/20 focus-visible:border-brand focus-visible:ring-1 focus-visible:ring-brand sm:flex md:w-56 lg:w-64"
             >
-              <input
-                type="search"
-                name="q"
-                placeholder="Search agents and skills"
-                aria-label="Search agents and skills"
-                className="min-h-[40px] w-40 rounded-[999px] border border-white/10 bg-surface-2/90 px-4 text-sm text-white placeholder:text-white/55 outline-none backdrop-blur-md transition-colors focus:border-brand focus:ring-1 focus:ring-brand md:w-56 lg:w-64"
-              />
-            </Form>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+                className="shrink-0"
+              >
+                <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                <path
+                  d="m10.5 10.5 3 3"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <span className="flex-1 truncate text-left">Search agents and skills</span>
+              <kbd className="hidden shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-white/70 md:inline">
+                ⌘K
+              </kbd>
+            </button>
 
             <WalletButton />
           </div>

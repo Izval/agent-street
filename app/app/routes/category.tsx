@@ -47,11 +47,17 @@ export async function loader({ params }: Route.LoaderArgs) {
     cats.map((c) => agents.list({ subcategory: c.id, limit: PER_ROW })),
   );
 
-  const rows = cats.map((c, i) => ({
-    id: c.id,
-    label: subcategoryLabel(c.id),
-    agents: pages[i].agents,
-  }));
+  // Each agent has a single subcategory, so rows are disjoint by construction — but
+  // dedup across rows by id as a guard so the same card can never repeat down the page.
+  const seen = new Set<string>();
+  const rows = cats.map((c, i) => {
+    const agents = pages[i].agents.filter((a) => {
+      if (seen.has(a.id)) return false;
+      seen.add(a.id);
+      return true;
+    });
+    return { id: c.id, label: subcategoryLabel(c.id), agents };
+  });
 
   // Honest hero metadata: total agents across subcategories (all real 8004scan).
   const total = pages.reduce((sum, p) => sum + p.pagination.total, 0);

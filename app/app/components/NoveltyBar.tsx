@@ -70,16 +70,6 @@ export function NoveltyBar({
           Portfolios
         </Link>
         <Link
-          to="/saved"
-          aria-label="Saved agents"
-          className="hidden min-h-[32px] items-center gap-1.5 rounded-[999px] border border-border px-3.5 text-[13px] font-semibold text-text-2 transition-colors hover:border-brand hover:text-text sm:inline-flex"
-        >
-          <span aria-hidden className="text-sm leading-none">
-            ♥
-          </span>
-          Saved
-        </Link>
-        <Link
           to="/docs"
           prefetch="intent"
           className="hidden min-h-[32px] items-center rounded-[999px] border border-border px-3.5 text-[13px] font-semibold text-text-2 transition-colors hover:border-brand hover:text-text sm:inline-flex"

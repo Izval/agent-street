@@ -17,7 +17,7 @@ export default [
   route("me", "routes/me.tsx"),
   route("saved", "routes/saved.tsx"),
   route("search", "routes/search.tsx"),
-  route("search.json", "routes/search.json.tsx"),
+  route("agents-index.json", "routes/agents-index.json.tsx"),
   route("for-agents", "routes/for-agents.tsx"),
   route("docs", "routes/docs.tsx"),
   route("docs.search.json", "routes/docs.search.tsx"),

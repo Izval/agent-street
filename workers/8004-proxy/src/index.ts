@@ -50,7 +50,8 @@ export interface Env {
   // Default "0" (conservador): los no medibles pasan, para no vaciar categorías delgadas.
   DROP_UNMEASURED?: string;
   // Construcción del corpus (cron): páginas globales top-score + presupuesto de enrich.
-  CORPUS_PAGES?: string; // default 8   → páginas globales (limit=100) en el ciclo
+  CORPUS_PAGES?: string; // default 8   → páginas globales top-score (limit=100) en el ciclo
+  CORPUS_NEWEST_PAGES?: string; // default 2 → páginas por created_at desc (agentes nuevos entran y se gatean)
   CORPUS_FETCH_PER_TICK?: string; // default 4 → jobs de fetch a 8004scan por tick (bajo el límite anónimo)
   ENRICH_BUDGET?: string; // default 60  → agentes a enriquecer por corrida (incremental)
 }
@@ -100,6 +101,9 @@ export interface Agent {
   // Se usa SOLO para el filtro de base y el orden — no se renderiza como badge nuevo.
   // Ausente ⇒ agente no medido aún (o sin wallet resoluble).
   onchain?: { totalUsd: number; txCount: number; at: string } | null;
+  // Fecha de alta en 8004scan (raw created_at, ISO). Se usa para ordenar por recencia
+  // (desempate entre agentes de igual score) y para la poda acotada del corpus.
+  createdAt: string | null;
   // "8004scan" = feed indexado (mainnet); "submitted" = creado en el marketplace
   // ("Crea tu propio agente"), vive en el registro KV propio (testnet por defecto).
   source: "8004scan" | "submitted";
@@ -150,6 +154,9 @@ export interface AgentServices {
   erc8183: boolean;
   /** true si el agent-card A2A se pudo leer en vivo. */
   cardLive: boolean;
+  /** Icon advertised by the live agent card (A2A `iconUrl`), if any. Used as a
+   *  generic image fallback when 8004scan has no `image_url` — for ANY agent. */
+  iconUrl?: string | null;
 }
 
 /** Detalle enriquecido que devuelve `getAgent` (Agent + reputación + services). */
@@ -187,9 +194,12 @@ const RL_WINDOW_SEC = 60;
 // --- Corpus propio (self-fetch) ---
 // Snapshot del top de 8004scan en NUESTRO KV, refrescado por cron. Servimos listados
 // desde aquí (rate-limit anónimo deja de importar) y aplicamos el filtro onchain.
-const CORPUS_KEY = "corpus:v1";
-const CORPUS_BUILT_KEY = "corpus:v1:built_at";
-const CORPUS_CURSOR_KEY = "corpus:v1:cursor"; // rotación de jobs entre ticks del cron.
+// v2: asignación de categoría HÍBRIDA (keyword fuerte + relevancia de búsqueda 8004scan,
+// 1 categoría por agente). Se versiona la key para reconstruir limpio y NO arrastrar las
+// asignaciones del force-label anterior (que era sticky vía existing?.subcategory).
+const CORPUS_KEY = "corpus:v2";
+const CORPUS_BUILT_KEY = "corpus:v2:built_at";
+const CORPUS_CURSOR_KEY = "corpus:v2:cursor"; // rotación de jobs entre ticks del cron.
 const CORPUS_TTL_SEC = 60 * 60; // 1h; el cron (cada 5 min) lo refresca mucho antes.
 // TTL largo para servir una copia "stale" cuando 8004scan rate-limitea, en vez de 502.
 const STALE_TTL_SEC = 24 * 60 * 60;
@@ -304,21 +314,24 @@ function normalize(raw: Record<string, unknown>): Agent {
     ownerCertifiedName: strOrNull(raw.owner_certified_name),
     tags,
     supportedProtocols,
+    createdAt: strOrNull(raw.created_at),
     source: "8004scan",
     network: networkOf(num(raw.chain_id, CHAIN_ID)),
   };
 }
 
+type ScanSort = { by: string; order?: "asc" | "desc" };
+
 async function fetch8004List(
   env: Env,
-  params: { page: number; limit: number; search?: string; chain?: number },
+  params: { page: number; limit: number; search?: string; chain?: number; sort?: ScanSort },
 ): Promise<{ rows: Record<string, unknown>[]; pagination: Pagination }> {
   const url = new URL(`${env.SCAN_8004_BASE.replace(/\/$/, "")}/agents`);
   url.searchParams.set("chainId", String(params.chain ?? CHAIN_ID));
   url.searchParams.set("page", String(params.page));
   url.searchParams.set("limit", String(params.limit));
-  url.searchParams.set("sortBy", "total_score");
-  url.searchParams.set("sortOrder", "desc");
+  url.searchParams.set("sortBy", params.sort?.by ?? "total_score");
+  url.searchParams.set("sortOrder", params.sort?.order ?? "desc");
   if (params.search) url.searchParams.set("search", params.search);
 
   const res = await fetch(url.toString(), { headers: upstreamHeaders(env) });
@@ -346,7 +359,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  *  transitorio en vez de burbujearlo como 502 al primer fallo. */
 async function fetch8004ListResilient(
   env: Env,
-  params: { page: number; limit: number; search?: string; chain?: number },
+  params: { page: number; limit: number; search?: string; chain?: number; sort?: ScanSort },
 ): Promise<{ rows: Record<string, unknown>[]; pagination: Pagination }> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -407,6 +420,58 @@ async function readCorpus(env: Env): Promise<Agent[] | null> {
   return Array.isArray(c) ? (c as Agent[]) : null;
 }
 
+// --- Índice compacto (GET /v1/index) para la búsqueda instantánea del marketplace ---
+// El panel ⌘K baja ESTO una sola vez y filtra/rankea en cliente (cero red por tecla).
+// Solo campos de display/búsqueda: se descartan description, reputación, owner*, tags,
+// métricas onchain, etc. para recortar el payload (~1500 items → ~60–90 KB gzip).
+export interface IndexAgent {
+  id: string;
+  name: string;
+  subcategory: Subcategory | null;
+  subcategoryLabel: string | null;
+  imageUrl?: string; // omitido cuando no hay (recorte de payload)
+  score: number;
+  network: "testnet" | "mainnet";
+  chainId: number;
+  agentId: string; // clave de dedup
+}
+
+function toIndexAgent(a: Agent): IndexAgent {
+  const out: IndexAgent = {
+    id: a.id,
+    name: a.name,
+    subcategory: a.subcategory,
+    subcategoryLabel: a.subcategoryLabel,
+    score: a.score,
+    network: a.network,
+    chainId: a.chainId,
+    agentId: a.agentId,
+  };
+  if (a.imageUrl) out.imageUrl = a.imageUrl;
+  return out;
+}
+
+/**
+ * Construye el índice completo en una sola pasada de KV: corpus (chain 56, cacheado
+ * por el cron) ∪ agentes creados (`submitted:*`, testnet). Los testnet salen de KV
+ * barato, NO del camino en vivo chain-97 — ahí está el speedup del buscador.
+ */
+async function buildIndex(env: Env): Promise<IndexAgent[]> {
+  const [corpus, submitted] = await Promise.all([
+    readCorpus(env),
+    listSubmitted(env),
+  ]);
+  const merged = [...(corpus ?? []), ...submitted];
+  const seen = new Set<string>();
+  const deduped = merged.filter((a) =>
+    seen.has(a.agentId) ? false : (seen.add(a.agentId), true),
+  );
+  deduped.sort(
+    (x, y) => y.score - x.score || y.feedbacks - x.feedbacks || y.stars - x.stars,
+  );
+  return deduped.map(toIndexAgent);
+}
+
 /**
  * Sirve un listado. Preferimos NUESTRO corpus (self-fetch, cacheado por el cron):
  * filtramos por categoría, aplicamos el filtro onchain duro, ordenamos por score y
@@ -429,7 +494,11 @@ async function listAgents(env: Env, params: ListParams): Promise<AgentsPage> {
     // Una búsqueda libre sin hits en el corpus ⇒ el agente vive fuera del top-N:
     // vale la pena consultar en vivo. El browse por categoría NO cae (0 es honesto).
     if (params.search && items.length === 0) return liveListAgents(env, params);
-    items = items.slice().sort((a, b) => b.score - a.score);
+    // Orden por CALIDAD: score, luego feedbacks, luego stars. La recencia NO se usa
+    // como proxy de calidad (un agente nuevo no es por sí mismo mejor).
+    items = items
+      .slice()
+      .sort((a, b) => b.score - a.score || b.feedbacks - a.feedbacks || b.stars - a.stars);
     const total = items.length;
     const start = (params.page - 1) * params.limit;
     const pageItems = items.slice(start, start + params.limit);
@@ -471,12 +540,21 @@ async function liveListAgents(env: Env, params: ListParams): Promise<AgentsPage>
         chain,
       });
       let agents = dedupeAgents(rows.map(normalize).filter(qualityGate));
+      // Hybrid assignment (mirrors the corpus path), 1 category per agent:
+      //  - keyword-classified into ANOTHER category → dropped (belongs elsewhere; this
+      //    is what stops the same agent appearing across every category);
+      //  - keyword-classified into THIS one, or unclassified → kept, and the unclassified
+      //    ones are weak-assigned to the browsed category (8004scan returned them for its
+      //    search = relevance by activity, not a fragile keyword gate).
       if (params.subcategory) {
-        agents = agents.map((a) => ({
-          ...a,
-          subcategory: a.subcategory ?? params.subcategory!,
-          subcategoryLabel: a.subcategoryLabel ?? SUBCATEGORY_LABELS[params.subcategory!],
-        }));
+        const sub = params.subcategory;
+        agents = agents
+          .map((a) =>
+            a.subcategory
+              ? a
+              : { ...a, subcategory: sub, subcategoryLabel: SUBCATEGORY_LABELS[sub] },
+          )
+          .filter((a) => a.subcategory === sub);
       }
       const sliced = agents.slice(0, params.limit);
       base = {
@@ -603,6 +681,7 @@ async function buildServices(
 
   let skills = toSkills(a2a.skills);
   let cardLive = false;
+  let iconUrl: string | null = null;
 
   // Siempre sondea el endpoint A2A (si existe) para que `cardLive` sea una señal real
   // de liveness para el badge "Endpoint live" — no solo un fallback de skills. Además,
@@ -617,6 +696,9 @@ async function buildServices(
       if (!erc8183) erc8183 = ERC8183_RE.test(JSON.stringify(card));
       // The card's `url` IS the JSON-RPC transport for message/send — prefer it.
       if (card.url) a2aEndpoint = String(card.url);
+      // A2A-standard `iconUrl` (accept a couple of casings) → generic image fallback.
+      const rawIcon = card.iconUrl ?? card.iconURL ?? card.icon ?? card.image;
+      if (rawIcon) iconUrl = String(rawIcon);
     }
   }
   // Card unreachable → best-effort: strip a `/.well-known/…` suffix so message/send
@@ -631,6 +713,7 @@ async function buildServices(
     x402: Boolean(raw.x402_supported),
     erc8183,
     cardLive,
+    iconUrl,
   };
 }
 
@@ -647,25 +730,50 @@ async function getAgent(
 
   // chain in the cache key so mainnet #N and testnet #N (distinct NFTs) never collide.
   const cacheKey = `agent:v3:${chain}:${tokenId}`;
+  const staleKey = `agent:stale:${chain}:${tokenId}`;
   const cached = await env.AGENTS_KV.get(cacheKey, "json");
   if (cached) return cached as AgentDetail;
 
   const url = `${env.SCAN_8004_BASE.replace(/\/$/, "")}/agents/${chain}/${encodeURIComponent(tokenId)}`;
-  const res = await fetch(url, { headers: upstreamHeaders(env) });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`8004scan ${res.status}`);
-  const body = (await res.json()) as Record<string, unknown>;
-  const data = (body.data ?? body) as Record<string, unknown>;
 
-  const agent = normalize(data);
-  const reputation = buildReputation(data);
-  const services = await buildServices(data);
-  const detail: AgentDetail = { ...agent, reputation, services };
+  // Upstream detail (8004scan) is intermittently 5xx. Retry with backoff — a real
+  // 404 short-circuits (never stale-served); any other failure falls through to the
+  // stale copy below, so a transient upstream blip never 404s a live agent.
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const res = await fetch(url, { headers: upstreamHeaders(env) });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`8004scan ${res.status}`);
+      const body = (await res.json()) as Record<string, unknown>;
+      const data = (body.data ?? body) as Record<string, unknown>;
 
-  await env.AGENTS_KV.put(cacheKey, JSON.stringify(detail), {
-    expirationTtl: AGENT_CACHE_SEC,
-  });
-  return detail;
+      const agent = normalize(data);
+      const reputation = buildReputation(data);
+      const services = await buildServices(data);
+      // Generic cover fallback: when 8004scan has no image, use the agent card's
+      // own iconUrl (see buildServices). Applies to any agent — no special-casing.
+      if (!agent.imageUrl && services.iconUrl) agent.imageUrl = services.iconUrl;
+      const detail: AgentDetail = { ...agent, reputation, services };
+
+      // Fresh (short) + stale (24h) — mirrors the list path's stale-serve.
+      await env.AGENTS_KV.put(cacheKey, JSON.stringify(detail), {
+        expirationTtl: AGENT_CACHE_SEC,
+      });
+      await env.AGENTS_KV.put(staleKey, JSON.stringify(detail), {
+        expirationTtl: STALE_TTL_SEC,
+      });
+      return detail;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 3) await sleep(300 * (attempt + 1));
+    }
+  }
+
+  // Upstream down after retries: serve the last good copy instead of a 502→404.
+  const stale = (await env.AGENTS_KV.get(staleKey, "json")) as AgentDetail | null;
+  if (stale) return stale;
+  throw lastErr;
 }
 
 // ------------------------------------------------------------------ //
@@ -739,6 +847,7 @@ function submittedToDetail(input: SubmittedInput): AgentDetail {
     ownerAvatarUrl: null,
     ownerPublisherTier: null,
     ownerCertifiedName: null,
+    createdAt: new Date().toISOString(),
     source: "submitted",
     network: networkOf(chainId),
     status,
@@ -904,17 +1013,34 @@ async function enrichOnchain(env: Env, agents: Agent[]): Promise<Agent[]> {
 }
 
 /** Un "job" de fetch a 8004scan (una página, global o de una categoría). */
-type CorpusJob = { page: number; search?: string; cat?: Subcategory };
+type CorpusJob = { page: number; search?: string; cat?: Subcategory; sort?: ScanSort };
 
 /** Lista determinista de jobs: páginas globales top-score + páginas por cada
  *  categoría OBLIGATORIA (garantiza igual profundidad para las 4 juzgadas). */
 function corpusJobs(env: Env): CorpusJob[] {
   const jobs: CorpusJob[] = [];
+  // Recency pages FIRST: newest-first so freshly registered agents (score 0, invisible
+  // in the top-score snapshot) enter the corpus early each cycle → new agents show up
+  // in near-real-time instead of the snapshot staying "fixed".
+  const newestPages = num0(env.CORPUS_NEWEST_PAGES, 2);
+  for (let p = 1; p <= newestPages; p++) {
+    jobs.push({ page: p, sort: { by: "created_at", order: "desc" } });
+  }
+  // One 8004scan search per subcategory, EARLY in the rotation so every category
+  // populates within the first ticks (not after all the global pages). 8004scan exposes
+  // NO category field, but its full-text search (name + description + agent-card/skills)
+  // IS a relevance signal richer than our name+description keyword regex — we use it to
+  // populate EVERY category by activity/relevance, not just the ones with keyword hits.
+  // The required 4 get an extra page (equal-depth for judging). Assignment stays
+  // 1-per-agent (see `buildCorpus` ingest): keyword wins, else this search is a weak vote.
+  for (const sub of SUBCATEGORIES) {
+    const pages = REQUIRED_SUBCATEGORIES.includes(sub) ? 2 : 1;
+    for (let p = 1; p <= pages; p++) jobs.push({ page: p, search: SUBCATEGORY_SEARCH[sub], cat: sub });
+  }
+  // Global top-score pages LAST: they add ranking depth / the home pool, but categories
+  // don't depend on them (keyword assignment is deterministic regardless of job order).
   const globalPages = num0(env.CORPUS_PAGES, 8);
   for (let p = 1; p <= globalPages; p++) jobs.push({ page: p });
-  for (const cat of REQUIRED_SUBCATEGORIES) {
-    for (let p = 1; p <= 2; p++) jobs.push({ page: p, search: SUBCATEGORY_SEARCH[cat], cat });
-  }
   return jobs;
 }
 
@@ -942,10 +1068,20 @@ async function buildCorpus(
       // Conserva el enrich onchain previo del mismo id; refresca los demás campos.
       const existing = byId.get(a.id);
       const merged: Agent = existing?.onchain ? { ...a, onchain: existing.onchain } : a;
-      if (cat) {
-        merged.subcategory = merged.subcategory ?? cat;
-        merged.subcategoryLabel = merged.subcategoryLabel ?? SUBCATEGORY_LABELS[cat];
+      // Asignación híbrida, UNA categoría por agente (sin duplicación cruzada):
+      //  1) keyword (name+description) gana — es la señal fuerte y precisa;
+      //  2) si no clasifica, se conserva la asignación previa (sticky entre ticks del
+      //     cron rotatorio, que no corre todos los search cada vez);
+      //  3) si sigue sin categoría y este job es un search de categoría (`cat`), ese
+      //     search de 8004scan (mira name+desc+skills/card) es un voto de RELEVANCIA
+      //     por actividad — se asigna. Así se puebla por actividad, no solo keywords.
+      // `a.subcategory` viene de normalize = clasificación keyword (o null).
+      if (!merged.subcategory) {
+        merged.subcategory = existing?.subcategory ?? cat ?? null;
       }
+      merged.subcategoryLabel = merged.subcategory
+        ? SUBCATEGORY_LABELS[merged.subcategory]
+        : null;
       byId.set(a.id, merged);
     }
   };
@@ -961,6 +1097,7 @@ async function buildCorpus(
         page: job.page,
         limit: 100,
         search: job.search,
+        sort: job.sort,
       });
       ingest(rows, job.cat);
       fetched++;
@@ -975,6 +1112,9 @@ async function buildCorpus(
     );
   }
 
+  // Sin cota artificial: la membresía la decide el gate onchain al servir, no un número.
+  // El corpus guarda todo lo fetcheado que pasa el anti-spam+dedup (los que fallan el
+  // gate quedan guardados pero NO se muestran). El tamaño lo acota la ventana de fetch.
   let agents = dedupeAgents([...byId.values()]);
   agents = await enrichOnchain(env, agents);
   const enriched = agents.filter((a) => a.onchain).length;
@@ -1109,6 +1249,11 @@ export default {
         const corpus = await readCorpus(env);
         const builtAt = await env.AGENTS_KV.get(CORPUS_BUILT_KEY);
         return json({ builtAt, ...corpusStats(corpus, env) }, env, 200, 15);
+      }
+
+      // Índice compacto completo (corpus ∪ submitted) para la búsqueda client-side.
+      if (path === "/v1/index") {
+        return json(await buildIndex(env), env, 200, 300);
       }
 
       // Chain param (default mainnet 56; only 56/97 supported). Generic multi-chain —
