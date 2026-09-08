@@ -1,7 +1,8 @@
 /**
  * Agent detail compositor (WS1.3) — assembles `AgentDetail` (contracts.ts) from
  * two sources: the enriched 8004scan proxy (agent + reputation + services) and
- * the onchain indexer (portfolio + trades).
+ * the onchain indexer (portfolio). Trades are NOT loaded here: they're streamed
+ * off the critical path by `routes/agent.tsx` (see loadTransactions).
  *
  * Consumed by `routes/agent.tsx` (Wave 3). Each source degrades to null
  * independently: if the indexer goes down, the detail still shows real reputation.
@@ -49,10 +50,10 @@ export async function loadAgentDetail(
   // Wallet to index: the agent's, or failing that, the owner's.
   const wallet = agent.agentWallet ?? agent.ownerAddress ?? null;
 
-  const [portfolio, trades] = await Promise.all([
-    wallet ? onchain.portfolio(wallet) : Promise.resolve(null),
-    wallet ? onchain.trades(wallet) : Promise.resolve(null),
-  ]);
+  // Only portfolio stays on the critical path (RPC + prices, cached). Trades are
+  // fetched off-path and streamed by routes/agent.tsx so the profile paints without
+  // waiting on the (slower) NodeReal transfers call.
+  const portfolio = wallet ? await onchain.portfolio(wallet) : null;
 
   return {
     agent,
@@ -60,9 +61,9 @@ export async function loadAgentDetail(
     subcategory,
     template,
     portfolio,
-    metrics: deriveMetrics(portfolio, trades),
+    metrics: deriveMetrics(portfolio, null),
     equity: null, // v1: no NAV history (see onchain.deriveMetrics)
-    trades,
+    trades: null, // streamed separately (see routes/agent.tsx loadTransactions)
     reputation,
     services,
   };

@@ -57,13 +57,8 @@ export function ProfileAbout({
   ];
 
   return (
-    <div className="glass-hero relative flex flex-col overflow-hidden rounded-xl p-6">
-      <span aria-hidden className="absolute inset-x-0 top-0 h-0.5" style={{ background: meta.accent }} />
-
-      <div className="mb-2 flex items-center gap-2.5">
-        <span aria-hidden className="h-4 w-1 rounded-[999px]" style={{ background: meta.accent }} />
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-text-3">About</h2>
-      </div>
+    <div className="glass-frost metal-frost relative flex h-full flex-col overflow-hidden rounded-xl p-6 md:p-7">
+      <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-text-3">About</div>
 
       {/* Description — the protagonist. */}
       <p className="text-lg leading-relaxed text-text">
@@ -71,20 +66,25 @@ export function ProfileAbout({
       </p>
       <p className="mt-3 text-sm text-text-3">{meta.tagline}</p>
 
-      {/* Real track-record KPIs. */}
-      {kpis.length > 0 && (
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {kpis.map((k) => (
-            <Kpi key={k.label} label={k.label} value={k.value} hint={k.hint} />
-          ))}
-        </div>
-      )}
+      {/* Track-record KPIs + identity facts — grouped and pushed to the bottom
+          (mt-auto) so the description reads as a spread (words up top, the data
+          cluster anchored at the base) that fills the full-height hero panel
+          instead of leaving a void in the middle. */}
+      <div className="mt-auto pt-8">
+        {kpis.length > 0 && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {kpis.map((k) => (
+              <Kpi key={k.label} label={k.label} value={k.value} hint={k.hint} />
+            ))}
+          </div>
+        )}
 
-      {/* Identity facts — folded in from the side rail. */}
-      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1.5 border-t border-border/60 pt-3">
-        <Fact label="Subcategory" value={agent.subcategoryLabel ?? "—"} />
-        <Fact label="Standard" value="ERC-8004" />
-        <Fact label="Network" value="BSC · testnet" />
+        {/* Identity facts — folded in from the side rail. */}
+        <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1.5 border-t border-border/60 pt-4">
+          <Fact label="Subcategory" value={agent.subcategoryLabel ?? "—"} />
+          <Fact label="Standard" value="ERC-8004" />
+          <Fact label="Network" value="BSC · testnet" />
+        </div>
       </div>
     </div>
   );

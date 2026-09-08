@@ -1,16 +1,21 @@
 /**
  * TransactionsPanel — "latest transactions" table under the dashboard chart
  * (the hiring-dashboard "history" surface). Unifies two REAL feeds:
- *   • Swaps — onchain DEX trades from the indexer (detail.trades), tx-linked.
+ *   • Swaps — onchain DEX trades from the indexer (trades), tx-linked.
  *   • Hires — settled x402 hires of this agent (hire-x402), tx-linked.
- * A type filter switches between them. Honest empty state; no invented rows
- * (DESIGN.md §18). Missing USD value shows "—", never an estimate.
+ * A type filter switches between them; rows paginate 10 at a time. Honest empty
+ * state; no invented rows (DESIGN.md §18). Missing USD value shows "—".
+ *
+ * The feed is streamed off the critical path (see routes/agent.tsx): this panel
+ * renders behind <Suspense> with TransactionsSkeleton as the fallback.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import type { AgentDetail, HireTx } from "../../lib/contracts";
+import type { HireTx, TradesResponse } from "../../lib/contracts";
 import { short, usd } from "../../lib/profile";
+
+const PAGE_SIZE = 10;
 
 type Kind = "swap" | "hire";
 type Filter = "all" | Kind;
@@ -51,16 +56,17 @@ function KindTag({ kind }: { kind: Kind }) {
 }
 
 export function TransactionsPanel({
-  detail,
+  trades,
   hires,
 }: {
-  detail: AgentDetail;
+  trades: TradesResponse | null;
   hires: HireTx[] | null;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
+  const [page, setPage] = useState(0);
 
   const rows = useMemo<Row[]>(() => {
-    const swaps: Row[] = (detail.trades?.trades ?? []).map((t) => ({
+    const swaps: Row[] = (trades?.trades ?? []).map((t) => ({
       kind: "swap",
       ts: t.ts,
       detail: `${t.side} ${t.tokenIn}→${t.tokenOut}`,
@@ -78,9 +84,17 @@ export function TransactionsPanel({
       explorerUrl: h.explorerUrl,
     }));
     return [...swaps, ...hireRows].sort((a, b) => (a.ts < b.ts ? 1 : -1));
-  }, [detail, hires]);
+  }, [trades, hires]);
 
   const shown = filter === "all" ? rows : rows.filter((r) => r.kind === filter);
+
+  // Reset to the first page whenever the filter changes the result set.
+  useEffect(() => setPage(0), [filter]);
+
+  const pageCount = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
+  const current = Math.min(page, pageCount - 1);
+  const start = current * PAGE_SIZE;
+  const paged = shown.slice(start, start + PAGE_SIZE);
 
   const filters: { id: Filter; label: string }[] = [
     { id: "all", label: "All" },
@@ -127,7 +141,7 @@ export function TransactionsPanel({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {shown.slice(0, 20).map((r) => (
+              {paged.map((r) => (
                 <tr key={`${r.kind}-${r.hash}`} className="text-text-2">
                   <td className="py-2.5">
                     <KindTag kind={r.kind} />
@@ -158,10 +172,69 @@ export function TransactionsPanel({
         </div>
       ) : (
         <p className="text-sm text-text-3">
-          No transactions yet. Onchain swaps require an indexer API key; hires
-          appear here once the agent is hired via x402 — empty instead of
-          made-up data.
+          No recent transactions. Onchain swaps show the agent's latest activity
+          within the recent block window; hires appear once the agent is hired via
+          x402 — empty instead of made-up data.
         </p>
+      )}
+
+      {shown.length > 0 && (
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-text-3">
+          <span className="tnum">
+            {start + 1}–{Math.min(start + PAGE_SIZE, shown.length)} of {shown.length}
+          </span>
+          {pageCount > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={current === 0}
+                className="rounded-[6px] border border-border px-2.5 py-1 font-semibold text-text-2 transition-colors hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                ← Prev
+              </button>
+              <span className="tnum px-1 text-text-2">
+                {current + 1} / {pageCount}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                disabled={current >= pageCount - 1}
+                className="rounded-[6px] border border-border px-2.5 py-1 font-semibold text-text-2 transition-colors hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next →
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * TransactionsSkeleton — Suspense fallback while the streamed feed loads. Uses
+ * the shared `.shimmer` class (cf. DashboardChart Empty). `failed` renders a quiet
+ * error line instead (the feed worker is down); never fabricates rows.
+ */
+export function TransactionsSkeleton({ failed = false }: { failed?: boolean }) {
+  return (
+    <div>
+      <div className="mb-4 flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-text">Latest transactions</h2>
+        <span className="text-xs text-text-3">· onchain</span>
+      </div>
+      {failed ? (
+        <p className="text-sm text-text-3">Transactions feed unavailable right now.</p>
+      ) : (
+        <div className="space-y-2" aria-hidden>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div
+              key={i}
+              className="shimmer h-9 rounded-[8px] border border-border/60 opacity-25"
+            />
+          ))}
+        </div>
       )}
     </div>
   );

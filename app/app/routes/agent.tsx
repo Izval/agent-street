@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
-import { useEffect } from "react";
-import { Link, redirect } from "react-router";
+import { Suspense, useEffect } from "react";
+import { Await, Link, redirect } from "react-router";
 
 import type { Route } from "./+types/agent";
 import { loadAgentDetail } from "../lib/detail";
@@ -19,8 +19,10 @@ import { AgentBackdrop } from "../components/profile/AgentBackdrop";
 import { ProfileIdentity } from "../components/profile/ProfileIdentity";
 import { ProfileAbout } from "../components/profile/ProfileAbout";
 import { ProfileStats } from "../components/profile/ProfileStats";
-import { TransactionsPanel } from "../components/profile/TransactionsPanel";
-import { ClmmSpecialty } from "../components/profile/ClmmSpecialty";
+import { TransactionsPanel, TransactionsSkeleton } from "../components/profile/TransactionsPanel";
+import { createOnchainClient } from "../lib/onchain";
+import type { HireTx, TradesResponse } from "../lib/contracts";
+import { SpecialtyPanel } from "../components/profile/SpecialtyPanel";
 import {
   ReputationSection,
   EquitySection,
@@ -29,6 +31,28 @@ import {
 
 export function meta({ loaderData }: Route.MetaArgs) {
   return [{ title: `${loaderData?.detail?.agent?.name ?? "Agent"} — Agent-Street` }];
+}
+
+/**
+ * The "latest transactions" feed (onchain swaps + settled x402 hires). Fetched
+ * OFF the critical path and streamed (see the loader's `transactions` promise), so
+ * the profile paints without waiting on the slower NodeReal transfers call.
+ */
+async function loadTransactions(agent: {
+  id: string;
+  agentWallet?: string | null;
+  ownerAddress?: string | null;
+}): Promise<{ trades: TradesResponse | null; hires: HireTx[] }> {
+  const wallet = agent.agentWallet ?? agent.ownerAddress ?? null;
+  const onchain = createOnchainClient({
+    baseUrl: env.ONCHAIN_INDEXER_URL,
+    fetcher: env.ONCHAIN_INDEXER,
+  });
+  const [trades, hires] = await Promise.all([
+    wallet ? onchain.trades(wallet) : Promise.resolve(null),
+    createHireClient({ payUrl: env.HIRE_X402_URL, fetcher: env.HIRE_X402 }).recentHires(agent.id),
+  ]);
+  return { trades, hires: hires ?? [] };
 }
 
 export async function loader({ params, request }: Route.LoaderArgs) {
@@ -57,16 +81,12 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   // Dashboard hero + related rails — all best-effort (null/[] when a worker is
   // down; the profile still renders). Honesty: real feeds only (DESIGN.md §18).
   //  • usage    — first-party demand over time (views+hires) for the Usage tab.
-  //  • hires    — settled x402 hires of this agent for "latest transactions".
   //  • affinity — REAL co-hires ("Frequently hired together").
   //  • pairsWith— complementary agents by subcategory (a recommendation).
-  const [usage, hires, affinity, pairsWith] = await Promise.all([
+  const [usage, affinity, pairsWith] = await Promise.all([
     createTrendingClient({ baseUrl: env.ANALYTICS_URL, fetcher: env.ANALYTICS }).series(
       detail.agent.id,
       { window: "7d" },
-    ),
-    createHireClient({ payUrl: env.HIRE_X402_URL, fetcher: env.HIRE_X402 }).recentHires(
-      detail.agent.id,
     ),
     createPortfoliosClient({ baseUrl: env.PORTFOLIOS_URL, fetcher: env.PORTFOLIOS }).affinity(
       detail.agent.id,
@@ -84,7 +104,9 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   return {
     detail,
     usage,
-    hires: hires ?? [],
+    // Streamed (unawaited promise) — the "latest transactions" table hydrates
+    // after first paint instead of blocking the profile on NodeReal.
+    transactions: loadTransactions(detail.agent),
     affinity: affinity?.rows ?? [],
     pairsWith,
     analyticsUrl: env.ANALYTICS_URL,
@@ -93,7 +115,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 }
 
 export default function AgentDetail({ loaderData }: Route.ComponentProps) {
-  const { detail, usage, hires, affinity, pairsWith, analyticsUrl, mcpUrl } = loaderData;
+  const { detail, usage, transactions, affinity, pairsWith, analyticsUrl, mcpUrl } = loaderData;
   const { agent, services } = detail;
   const meta = getProfileMeta(agent);
 
@@ -118,14 +140,16 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
       activeSubcategory={agent.subcategory ?? undefined}
     >
       <div className="pb-24 lg:pb-2">
-        {/* ───────── Profile hero (full-bleed, image-driven) ─────────
-            Cancels the <main> padding (-mx/-mt) so the agent's own photo runs
-            edge-to-edge and FLUSH under the sticky header — no dead gap. The
+        {/* ───────── Profile hero (immersive, full-bleed, image-driven) ─────────
+            Cancels the <main> gutter (-mx/-mt) AND drops the inner horizontal
+            padding so the agent's own photo runs to the very edge and FLUSH under
+            the sticky header — no lateral or top gap, no boxed-in feel. The
             blurred photo is the hero's background (like the home category
-            slideshow) and, since the panels are translucent glass, it bleeds
-            through and tints the whole block, so the description + stats read as
-            one image-driven surface. Columns: LEFT big identity photo + Hire ·
-            CENTER description · RIGHT stats + secondary chart. */}
+            slideshow); the panels are translucent metal-frost glass so it bleeds
+            through and tints the whole block, and the identity photo + description
+            share the same material so they read as ONE agent-specific surface.
+            The breadcrumb lives INSIDE, tucked over the backdrop. Columns: LEFT
+            big identity photo + Hire · CENTER description · RIGHT charts. */}
         <div className="relative -mx-4 -mt-6 md:-mx-8 md:-mt-8">
           <AgentBackdrop
             imageUrl={agent.imageUrl}
@@ -134,26 +158,37 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
             category={meta.category}
           />
 
-          <div className="relative mx-auto max-w-[1440px] px-4 pt-4 md:px-8">
-            {/* Corner breadcrumb — tucked in the top-left over the backdrop. */}
+          <div className="relative mx-auto max-w-[1440px]">
+            {/* Breadcrumb — overlaid on the hero's top-left corner (over the
+                backdrop/photo), taking no vertical space, so there's NO dead
+                band between the nav and the image: the hero art runs flush right
+                up to the header. */}
             <Link
               to={agent.subcategory ? `/subcategory/${agent.subcategory}` : "/"}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-text-2 transition-colors hover:text-text"
+              className="absolute left-0 top-0 z-20 inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium text-white/70 transition-colors hover:text-white md:px-6"
+              style={{ textShadow: "0 1px 8px rgba(0,0,0,0.65)" }}
             >
               ← {agent.subcategoryLabel ?? "Marketplace"}
             </Link>
 
-            <div className="mt-3 grid items-start gap-4 lg:grid-cols-[360px_minmax(0,1fr)_340px] lg:gap-6">
+            {/* The hero fills the viewport below the sticky header (h-16 + h-11
+                = 108px) so the agent's art reads as a full-screen cover; the
+                photo (flex-1) and glass panels stretch to that height. */}
+            <div className="grid items-stretch gap-3 lg:min-h-[calc(100svh-108px)] lg:grid-cols-[minmax(380px,440px)_minmax(0,1fr)_320px] lg:gap-4">
               <ProfileIdentity detail={detail} meta={meta} />
               <ProfileAbout detail={detail} meta={meta} />
               {/* Stretch to the row height so both charts can split it 50/50. */}
-              <div className="self-stretch">
-                <ProfileStats detail={detail} meta={meta} usage={usage} />
+              <div className="self-stretch pr-4 md:pr-6">
+                <ProfileStats detail={detail} meta={meta} usage={usage} transactions={transactions} />
               </div>
             </div>
 
-            <div className="mt-4 lg:mt-6">
-              <TransactionsPanel detail={detail} hires={hires} />
+            <div className="mt-3 px-4 md:px-6 lg:mt-4">
+              <Suspense fallback={<TransactionsSkeleton />}>
+                <Await resolve={transactions} errorElement={<TransactionsSkeleton failed />}>
+                  {(tx) => <TransactionsPanel trades={tx.trades} hires={tx.hires} />}
+                </Await>
+              </Suspense>
             </div>
           </div>
         </div>
@@ -169,12 +204,13 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
             </h2>
           </div>
 
-          {/* Signature specialty block (flagship CLMM only), full width. */}
-          {meta.template === "clmm" && (
-            <div className="mb-4 lg:mb-6">
-              <ClmmSpecialty detail={detail} meta={meta} />
-            </div>
-          )}
+          {/* Signature specialty block, full width. SpecialtyPanel renders a
+              dedicated, per-category block for every template (Rebalancing gets
+              ClmmSpecialty; Grid/Yield/Health/RWA/NFT/Services each get their own
+              real, qualitative panel) — Agent Diversity is judged on equal depth. */}
+          <div className="mb-4 lg:mb-6">
+            <SpecialtyPanel detail={detail} meta={meta} />
+          </div>
 
           <div className="flex min-w-0 flex-col gap-4 lg:gap-6">
             {/* About leads the hero (ProfileAbout); the body opens on reputation. */}

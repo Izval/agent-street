@@ -12,12 +12,19 @@
  * never a fabricated line.
  */
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { Await } from "react-router";
 
-import type { AgentDetail, UsageSeries } from "../../lib/contracts";
+import type { AgentDetail, HireTx, TradesResponse, UsageSeries } from "../../lib/contracts";
 import { getTrackRecord } from "../../lib/profile";
 import { AreaChart, type AreaChartPoint } from "../charts/AreaChart";
 import { BarCompare } from "../charts/BarCompare";
+
+/** The streamed transactions feed (see routes/agent.tsx loadTransactions). */
+export type TransactionsPromise = Promise<{
+  trades: TradesResponse | null;
+  hires: HireTx[];
+}>;
 
 type Tab = "usage" | "reputation";
 type UsageSource = "demand" | "onchain";
@@ -40,8 +47,8 @@ function fmtDay(iso: string): string {
 }
 
 /** Bin onchain trades by UTC day → one point per day (count of actions). */
-function tradesByDay(detail: AgentDetail): AreaChartPoint[] {
-  const trades = detail.trades?.trades ?? [];
+function tradesByDay(td: TradesResponse | null): AreaChartPoint[] {
+  const trades = td?.trades ?? [];
   if (!trades.length) return [];
   const byDay = new Map<string, number>();
   for (const t of trades) {
@@ -96,11 +103,14 @@ function Empty({
 export function DashboardChart({
   detail,
   usage,
+  transactions,
   compact = false,
   only,
 }: {
   detail: AgentDetail;
   usage: UsageSeries | null;
+  /** Streamed onchain feed — the Onchain toggle resolves it lazily (Suspense). */
+  transactions?: TransactionsPromise;
   /** Secondary/rail placement: drop the KPI callouts and shrink the plot. */
   compact?: boolean;
   /** Pin to a single chart (no tab switcher) — for stacking both side rails. */
@@ -120,8 +130,6 @@ export function DashboardChart({
     return pts.map((p) => ({ ts: fmtHour(p.ts), value: p.views + p.hires }));
   }, [usage]);
   const demandTotal = demandPoints.reduce((s, p) => s + p.value, 0);
-
-  const onchainPoints = useMemo(() => tradesByDay(detail), [detail]);
 
   const repBars = (detail.reputation?.dimensions ?? []).map((d) => ({
     label: d.key,
@@ -192,13 +200,37 @@ export function DashboardChart({
                     chart here as they accrue.
                   </Empty>
                 )
-              ) : onchainPoints.length ? (
-                <AreaChart points={onchainPoints} tone="up" height={chartH} fill={!!only} />
               ) : (
-                <Empty height={chartH} fill={!!only}>
-                  No onchain actions indexed. The trades feed needs an indexer API
-                  key — empty instead of made-up data.
-                </Empty>
+                // Onchain activity is streamed (same feed as the tx table); only
+                // this sub-view suspends — the rest of the hero paints instantly.
+                <Suspense
+                  fallback={
+                    <Empty height={chartH} fill={!!only}>
+                      Loading onchain activity…
+                    </Empty>
+                  }
+                >
+                  <Await
+                    resolve={transactions ?? Promise.resolve({ trades: null, hires: [] })}
+                    errorElement={
+                      <Empty height={chartH} fill={!!only}>
+                        Onchain feed unavailable right now.
+                      </Empty>
+                    }
+                  >
+                    {(tx) => {
+                      const pts = tradesByDay(tx.trades);
+                      return pts.length ? (
+                        <AreaChart points={pts} tone="up" height={chartH} fill={!!only} />
+                      ) : (
+                        <Empty height={chartH} fill={!!only}>
+                          No onchain actions in the recent block window — empty
+                          instead of made-up data.
+                        </Empty>
+                      );
+                    }}
+                  </Await>
+                </Suspense>
               )}
             </div>
           </>

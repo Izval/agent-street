@@ -51,12 +51,12 @@ export function ProfileIdentity({
   };
 
   return (
-    <div className="glass-frost metal-frost relative flex flex-col overflow-hidden rounded-xl">
-      {/* Accent top hairline (matches the other profile surfaces). */}
-      <span aria-hidden className="absolute inset-x-0 top-0 z-20 h-0.5" style={{ background: meta.accent }} />
-
-      {/* ── The protagonist: big portrait image, edge-to-edge ── */}
-      <div className="relative aspect-[4/5] min-h-0 w-full">
+    <div className="glass-frost metal-frost relative flex h-full flex-col overflow-hidden rounded-r-xl border-l-0">
+      {/* ── The protagonist: big portrait image, edge-to-edge. Fills the row
+          height (flex-1) so the photo and the About panel beside it stay the
+          same height — one integrated surface, no dead space. A floor keeps it
+          tall when the description is short. ── */}
+      <div className="relative min-h-[340px] w-full flex-1">
         {/* Layer 0 — deterministic on-brand base (also the no-image art). */}
         <span aria-hidden className="absolute inset-0" style={coverStyle(agent.id || agent.name, meta.accent)} />
 
