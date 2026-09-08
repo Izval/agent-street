@@ -44,7 +44,13 @@ import type {
   PasskeyCredential,
   Call,
 } from "@altananetwork/sdk";
-import type { SpendCap } from "./contracts";
+import type {
+  SpendCap,
+  Session as MarketplaceSession,
+  SessionStatus,
+} from "./contracts";
+
+const EXPLORER = "https://testnet.bscscan.com";
 
 const STORE_VERSION = 2;
 const lsKey = (owner: string) =>
@@ -64,6 +70,8 @@ export interface StoredAltanaSession {
   serializedSession: unknown | null;
   /** Session public key = the on-chain id / revocation handle. null while a draft. */
   sessionPublicKey: string | null;
+  /** Grant tx hash (keystore-visible), persisted so it survives a record failure. */
+  grantTxHash: string | null;
   /** Spend caps (limitBase in the token's base units). */
   caps: SpendCap[];
   /** Agent ids this session may hire (empty = any). */
@@ -192,6 +200,12 @@ export interface BeginSessionInput {
 export async function beginSession(
   input: BeginSessionInput,
 ): Promise<{ walletAddress: Address }> {
+  // Guard: never clobber a LIVE granted session. Overwriting it would strand
+  // the on-chain authorization (its passkey handle + session key live only
+  // here) — the exact footgun the SDK warns about. Revoke it first.
+  if (getActiveSession(input.owner))
+    throw new Error("active_session_exists");
+
   const s = await sdk();
   const c = await client();
 
@@ -210,6 +224,48 @@ export async function beginSession(
     granted: false,
     serializedSession: null,
     sessionPublicKey: null,
+    grantTxHash: null,
+    caps: input.caps,
+    allowlist: input.allowlist,
+    expiryHours: input.expiryHours,
+    expiry: 0,
+    network: "bsc-testnet",
+  });
+
+  return { walletAddress: wallet.address };
+}
+
+/**
+ * Alternative Phase 1 — RECOVER an existing passkey-controlled smart-account
+ * (WebAuthn: pick the passkey) instead of creating a fresh one. Reuses a wallet
+ * you already funded (its balance pays the grant), and is the escape hatch when
+ * a prior session was stranded: recover the wallet, then grant/revoke again. No
+ * on-chain tx here; persists a DRAFT keyed to the recovered address.
+ */
+export async function recoverSession(
+  input: BeginSessionInput,
+): Promise<{ walletAddress: Address }> {
+  // Same guard as beginSession: don't clobber a live granted session.
+  if (getActiveSession(input.owner))
+    throw new Error("active_session_exists");
+
+  const s = await sdk();
+  const c = await client();
+
+  // Recover the smart-account from its passkey (WebAuthn prompt — pick it).
+  const wallet = await c.recoverFromPasskey({});
+
+  // Fresh session signer we own + persist (hires don't re-prompt).
+  const sessionSigner = s.createPrivateKeySigner();
+
+  writeStore(input.owner, {
+    walletAddress: wallet.address,
+    passkeyCredential: wallet.signer.credential,
+    sessionKey: (sessionSigner as { _privateKey: Hex })._privateKey,
+    granted: false,
+    serializedSession: null,
+    sessionPublicKey: null,
+    grantTxHash: null,
     caps: input.caps,
     allowlist: input.allowlist,
     expiryHours: input.expiryHours,
@@ -289,6 +345,7 @@ export async function finalizeSession(
     granted: true,
     serializedSession: s.serializeSession(granted),
     sessionPublicKey: granted.publicKey,
+    grantTxHash: granted.transactionHash ?? null,
     expiry: expirySec,
   });
 
@@ -378,4 +435,36 @@ export async function revokeActiveSession(
 export function discardDraft(owner: string): void {
   const s = readStore(owner);
   if (s && !s.granted) clearStore(owner);
+}
+
+/**
+ * Build a marketplace `Session` from the locally-held granted session, so the
+ * manage surface can show YOUR OWN session (with its grant tx + revoke control)
+ * even when the recording worker is unreachable — the session key lives
+ * client-side, so this is real state, not a fabrication. `usedAmount` /
+ * `remainingAmount` are null here: only the worker (which sees the hire log)
+ * can derive spend. Returns null if there is no granted session for this owner.
+ */
+export function localSessionFor(owner: string): MarketplaceSession | null {
+  const s = readStore(owner);
+  if (!s || !s.granted || !s.sessionPublicKey) return null;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const status: SessionStatus =
+    s.expiry && nowSec >= s.expiry ? "expired" : "active";
+  return {
+    id: s.sessionPublicKey,
+    walletAddress: s.walletAddress,
+    spend: s.caps,
+    allowlist: s.allowlist,
+    expiry: s.expiry,
+    network: s.network,
+    status,
+    grantTxHash: s.grantTxHash,
+    grantExplorerUrl: s.grantTxHash ? `${EXPLORER}/tx/${s.grantTxHash}` : null,
+    revokeTxHash: null,
+    revokeExplorerUrl: null,
+    createdAt: "",
+    usedAmount: null,
+    remainingAmount: null,
+  };
 }

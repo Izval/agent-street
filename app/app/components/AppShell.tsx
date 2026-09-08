@@ -88,7 +88,7 @@ export function AppShell({
   }, [open]);
 
   return (
-    <div className="min-h-screen bg-bg text-text">
+    <div className="min-h-screen overflow-x-clip bg-bg text-text">
       {/* Sticky two-row header */}
       <header className="sticky top-0 z-30">
         {/* Row 1 — options */}

@@ -9,11 +9,13 @@ import type { Session, SpendCap, SpendPeriod } from "../lib/contracts";
 import { createSessionsClient } from "../lib/sessions-client";
 import {
   beginSession,
+  recoverSession,
   finalizeSession,
   walletBalance,
   getDraftSession,
   discardDraft,
   revokeActiveSession,
+  localSessionFor,
   type CreateSessionResult,
 } from "../lib/altana";
 import { AppShell } from "../components/AppShell";
@@ -105,7 +107,10 @@ export async function action({ request }: Route.ActionArgs) {
 
 function humanizeError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
-  if (/no_active_session|no_session/.test(msg)) return "No active session found.";
+  if (/active_session_exists/.test(msg))
+    return "You already have a live session. Revoke it before granting a new one.";
+  if (/no_active_session|no_session|no_draft_session/.test(msg))
+    return "No active session found.";
   if (/NotAllowed|denied|abort|cancel/i.test(msg))
     return "The passkey prompt was cancelled.";
   if (/insufficient|funds|balance/i.test(msg))
@@ -256,7 +261,7 @@ export default function Manage({ loaderData }: Route.ComponentProps) {
   const [period, setPeriod] = useState<SpendPeriod>("day");
   const [expiryHours, setExpiryHours] = useState("24");
   const [phase, setPhase] = useState<
-    "idle" | "creating" | "granting" | "recording"
+    "idle" | "creating" | "recovering" | "granting" | "recording"
   >("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -266,14 +271,24 @@ export default function Manage({ loaderData }: Route.ComponentProps) {
   const [balance, setBalance] = useState<string | null>(null);
   const [checkingBal, setCheckingBal] = useState(false);
 
-  // On mount / owner change, surface any draft awaiting a grant (survives reload).
+  // Locally-held granted session (client keeps the session key). Shown as a
+  // fallback so YOUR OWN session — grant tx + revoke control — renders even when
+  // the recording worker is unreachable (e.g. local dev / offline).
+  const [localSession, setLocalSession] = useState<Session | null>(null);
+  const [revokeNote, setRevokeNote] = useState<{ txHash: string | null } | null>(
+    null,
+  );
+
+  // On mount / owner change, surface any pending draft and the local session.
   useEffect(() => {
     if (!address) {
       setDraftAddr(null);
+      setLocalSession(null);
       return;
     }
     const d = getDraftSession(address);
     setDraftAddr(d ? d.walletAddress : null);
+    setLocalSession(localSessionFor(address));
   }, [address]);
 
   // Sync the connected wallet with ?address= so the loader lists this identity's sessions.
@@ -292,42 +307,73 @@ export default function Manage({ loaderData }: Route.ComponentProps) {
   const busy = phase !== "idle" || fetcher.state !== "idle";
   const actionError = fetcher.data?.error ?? null;
 
-  // Phase 1 — create the passkey smart-account (counterfactual, no funds), then
-  // surface its address so the user can fund it before granting.
-  async function onBegin() {
-    if (!address) return;
-    setError(null);
+  // Build the grant params from the form, or null (setting an error) if invalid.
+  function buildParams(): { caps: SpendCap[]; allowlist: string[]; hours: number } | null {
     const meta = TOKENS[token];
     let limitBase: string;
     try {
       limitBase = parseUnits(amount || "0", meta.decimals).toString();
     } catch {
       setError("Enter a valid cap amount.");
-      return;
+      return null;
     }
     if (limitBase === "0") {
       setError("The spend cap must be greater than zero.");
-      return;
+      return null;
     }
-    const caps: SpendCap[] = [
-      {
-        token: meta.address,
-        limitBase,
-        period,
-        symbol: meta.symbol,
-        decimals: meta.decimals,
-      },
-    ];
-    const hours = Math.max(1, Number(expiryHours) || 24);
-    const allowlist = agent ? [agent] : [];
+    return {
+      caps: [
+        {
+          token: meta.address,
+          limitBase,
+          period,
+          symbol: meta.symbol,
+          decimals: meta.decimals,
+        },
+      ],
+      allowlist: agent ? [agent] : [],
+      hours: Math.max(1, Number(expiryHours) || 24),
+    };
+  }
 
+  // Phase 1 — create the passkey smart-account (counterfactual, no funds), then
+  // surface its address so the user can fund it before granting.
+  async function onBegin() {
+    if (!address) return;
+    setError(null);
+    const p = buildParams();
+    if (!p) return;
     try {
       setPhase("creating");
       const { walletAddress } = await beginSession({
         owner: address,
-        caps,
-        allowlist,
-        expiryHours: hours,
+        caps: p.caps,
+        allowlist: p.allowlist,
+        expiryHours: p.hours,
+      });
+      setDraftAddr(walletAddress);
+      setBalance(null);
+      setPhase("idle");
+    } catch (e) {
+      setError(humanizeError(e));
+      setPhase("idle");
+    }
+  }
+
+  // Phase 1 (alt) — recover an EXISTING passkey wallet (reuse its funds). Same
+  // resulting draft; the fund step is a no-op if it already holds testnet BNB.
+  async function onRecover() {
+    if (!address) return;
+    setError(null);
+    const p = buildParams();
+    if (!p) return;
+    try {
+      setPhase("recovering");
+      const { walletAddress } = await recoverSession({
+        owner: address,
+        caps: p.caps,
+        allowlist: p.allowlist,
+        expiryHours: p.hours,
       });
       setDraftAddr(walletAddress);
       setBalance(null);
@@ -384,6 +430,8 @@ export default function Manage({ loaderData }: Route.ComponentProps) {
       );
       setDraftAddr(null);
       setBalance(null);
+      setLocalSession(localSessionFor(address));
+      setRevokeNote(null);
       setPhase("idle");
     } catch (e) {
       setError(humanizeError(e));
@@ -404,6 +452,10 @@ export default function Manage({ loaderData }: Route.ComponentProps) {
     setError(null);
     try {
       const res = await revokeActiveSession(address);
+      // On-chain revoke done + local key cleared; drop the local card and show
+      // its tx. Recording to the worker is best-effort (may be down in dev).
+      setLocalSession(null);
+      setRevokeNote({ txHash: res.revokeTxHash ?? null });
       fetcher.submit(
         {
           intent: "revoke",
@@ -418,15 +470,27 @@ export default function Manage({ loaderData }: Route.ComponentProps) {
     }
   }
 
+  const beginLabel =
+    phase === "creating" ? "Confirm with your passkey…" : "Create Altana wallet";
+  const recoverLabel =
+    phase === "recovering"
+      ? "Confirm with your passkey…"
+      : "Recover an existing Altana wallet";
   const grantLabel =
-    phase === "passkey"
+    phase === "granting"
       ? "Confirm with your passkey…"
       : phase === "recording" || fetcher.state !== "idle"
         ? "Recording session…"
         : "Grant session";
 
-  const active = sessions.filter((s) => s.status === "active");
-  const past = sessions.filter((s) => s.status !== "active");
+  // Merge the locally-held session in when the worker list omits it (worker
+  // unreachable), so your own session still renders. Worker data wins on id.
+  const merged =
+    localSession && !sessions.some((s) => s.id === localSession.id)
+      ? [localSession, ...sessions]
+      : sessions;
+  const active = merged.filter((s) => s.status === "active");
+  const past = merged.filter((s) => s.status !== "active");
 
   return (
     <AppShell>
@@ -470,7 +534,8 @@ export default function Manage({ loaderData }: Route.ComponentProps) {
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     inputMode="decimal"
-                    className="tnum mt-1 w-full rounded-[8px] border border-border bg-surface-2 px-3 py-2 text-sm text-text outline-none focus:border-brand"
+                    disabled={busy || !!draftAddr}
+                    className="tnum mt-1 w-full rounded-[8px] border border-border bg-surface-2 px-3 py-2 text-sm text-text outline-none focus:border-brand disabled:opacity-50"
                   />
                 </label>
                 <label className="text-xs text-text-3">
@@ -478,7 +543,8 @@ export default function Manage({ loaderData }: Route.ComponentProps) {
                   <select
                     value={token}
                     onChange={(e) => setToken(e.target.value as TokenKey)}
-                    className="mt-1 w-full rounded-[8px] border border-border bg-surface-2 px-3 py-2 text-sm text-text outline-none focus:border-brand"
+                    disabled={busy || !!draftAddr}
+                    className="mt-1 w-full rounded-[8px] border border-border bg-surface-2 px-3 py-2 text-sm text-text outline-none focus:border-brand disabled:opacity-50"
                   >
                     <option value="USDT">USDT</option>
                     <option value="BNB">BNB</option>
@@ -489,7 +555,8 @@ export default function Manage({ loaderData }: Route.ComponentProps) {
                   <select
                     value={period}
                     onChange={(e) => setPeriod(e.target.value as SpendPeriod)}
-                    className="mt-1 w-full rounded-[8px] border border-border bg-surface-2 px-3 py-2 text-sm text-text outline-none focus:border-brand"
+                    disabled={busy || !!draftAddr}
+                    className="mt-1 w-full rounded-[8px] border border-border bg-surface-2 px-3 py-2 text-sm text-text outline-none focus:border-brand disabled:opacity-50"
                   >
                     {PERIODS.map((p) => (
                       <option key={p} value={p}>
@@ -504,25 +571,133 @@ export default function Manage({ loaderData }: Route.ComponentProps) {
                     value={expiryHours}
                     onChange={(e) => setExpiryHours(e.target.value)}
                     inputMode="numeric"
-                    className="tnum mt-1 w-full rounded-[8px] border border-border bg-surface-2 px-3 py-2 text-sm text-text outline-none focus:border-brand"
+                    disabled={busy || !!draftAddr}
+                    className="tnum mt-1 w-full rounded-[8px] border border-border bg-surface-2 px-3 py-2 text-sm text-text outline-none focus:border-brand disabled:opacity-50"
                   />
                 </label>
               </div>
 
-              <button
-                type="button"
-                onClick={onGrant}
-                disabled={busy}
-                className="mt-5 w-full rounded-[8px] bg-brand px-5 py-3 text-sm font-semibold text-bg transition-colors hover:bg-brand-bright disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {grantLabel}
-              </button>
-              <p className="mt-3 text-center text-xs text-text-3">
-                Signed by a passkey on an Altana smart-account (not your extension wallet).
-                The account must hold testnet BNB before its first on-chain action.
-              </p>
-              {(error || actionError) && (
-                <p className="mt-3 text-center text-xs text-down">{error ?? actionError}</p>
+              {!draftAddr ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={onBegin}
+                    disabled={busy}
+                    className="mt-5 w-full rounded-[8px] bg-brand px-5 py-3 text-sm font-semibold text-bg transition-colors hover:bg-brand-bright disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {beginLabel}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onRecover}
+                    disabled={busy}
+                    className="mt-2 w-full rounded-[8px] border border-border px-5 py-2.5 text-sm font-semibold text-text-2 transition-colors hover:border-brand hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {recoverLabel}
+                  </button>
+                  <p className="mt-3 text-center text-xs text-text-3">
+                    Step 1 of 2. Creates a passkey-controlled Altana smart-account (no
+                    transaction, no funds yet) — separate from your extension wallet. You
+                    fund it, then grant. Already have a funded Altana wallet? Recover it to
+                    reuse its balance.
+                  </p>
+                </>
+              ) : (
+                <div className="mt-5 rounded-[8px] border border-brand/40 bg-surface-2 p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-brand">
+                      Step 2 of 2 · Fund, then grant
+                    </span>
+                    <button
+                      type="button"
+                      onClick={onDiscardDraft}
+                      disabled={busy}
+                      className="text-xs text-text-3 transition-colors hover:text-down disabled:opacity-60"
+                    >
+                      Discard
+                    </button>
+                  </div>
+                  <p className="mt-3 text-xs text-text-3">
+                    Send testnet BNB to this Altana smart-account, then grant. The grant
+                    pays a keystore registration fee + gas from this account.
+                  </p>
+                  <div className="mt-2 flex items-center justify-between gap-2 rounded-[6px] border border-border bg-bg px-3 py-2">
+                    <code className="tnum truncate text-xs text-text">{draftAddr}</code>
+                    <button
+                      type="button"
+                      onClick={() => navigator.clipboard?.writeText(draftAddr)}
+                      className="shrink-0 text-xs text-text-3 transition-colors hover:text-text"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <a
+                      href={FAUCET}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-[8px] border border-border px-3 py-2 text-xs font-semibold text-text-2 transition-colors hover:border-brand hover:text-text"
+                    >
+                      Open faucet ↗
+                    </a>
+                    <a
+                      href={`${EXPLORER}/address/${draftAddr}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-[8px] border border-border px-3 py-2 text-xs font-semibold text-text-2 transition-colors hover:border-brand hover:text-text"
+                    >
+                      View on explorer ↗
+                    </a>
+                    <button
+                      type="button"
+                      onClick={onCheckBalance}
+                      disabled={checkingBal}
+                      className="rounded-[8px] border border-border px-3 py-2 text-xs font-semibold text-text-2 transition-colors hover:border-brand hover:text-text disabled:opacity-60"
+                    >
+                      {checkingBal ? "Checking…" : "Check balance"}
+                    </button>
+                    {balance != null && (
+                      <span className="tnum text-xs text-text-2">
+                        Balance: <span className="font-semibold text-text">{balance} BNB</span>
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onFinalize}
+                    disabled={busy}
+                    className="mt-4 w-full rounded-[8px] bg-brand px-5 py-3 text-sm font-semibold text-bg transition-colors hover:bg-brand-bright disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {grantLabel}
+                  </button>
+                </div>
+              )}
+              {error && (
+                <p className="mt-3 text-center text-xs text-down">{error}</p>
+              )}
+              {actionError && !localSession && (
+                <p className="mt-3 text-center text-xs text-down">{actionError}</p>
+              )}
+              {actionError && localSession && (
+                <p className="mt-3 text-center text-xs text-text-3">
+                  Session is live on-chain (shown below); the marketplace record is
+                  unavailable right now — spend tracking will sync when it is back.
+                </p>
+              )}
+              {revokeNote && (
+                <p className="mt-3 text-center text-xs text-text-3">
+                  Session revoked on-chain.{" "}
+                  {revokeNote.txHash ? (
+                    <a
+                      href={`${EXPLORER}/tx/${revokeNote.txHash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-brand hover:underline"
+                    >
+                      Revoke tx ↗
+                    </a>
+                  ) : null}
+                </p>
               )}
             </Card>
 

@@ -5,7 +5,8 @@
 // NO inventa datos. Fuentes:
 //   - Balances: RPC público BSC (eth_getBalance + eth_call balanceOf) — keyless.
 //   - Precios USD: DexScreener /latest/dex/tokens/{addrs} (pairs[].priceUsd) — keyless.
-//   - Trades: BscScan tokentx (API key opcional via env.BSCSCAN_API_KEY).
+//   - Trades: NodeReal/MegaNode nr_getAssetTransfers (BSCTrace) via env.NODEREAL_API_KEY.
+//     (BscScan/Etherscan V2 no tiene free tier para BSC; NodeReal sí — reemplazo total.)
 // Patrón reutilizado del Worker 8004-proxy: CORS + KV cache + rate-limit + router por path.
 //
 // Endpoints:
@@ -22,10 +23,11 @@ import { TOKENS, WBNB_ADDRESS, type TokenMeta } from "./tokens";
 export interface Env {
   INDEXER_KV: KVNamespace;
   ALLOWED_ORIGIN: string;
-  // RPC público BSC mainnet.
+  // RPC público BSC mainnet (balances, eth_blockNumber). Keyless.
   BSC_RPC_URL: string;
-  // Secret opcional: `wrangler secret put BSCSCAN_API_KEY`. Sube el rate-limit de trades.
-  BSCSCAN_API_KEY?: string;
+  // Secret: `wrangler secret put NODEREAL_API_KEY`. Habilita el feed de trades vía
+  // NodeReal/MegaNode (nr_getAssetTransfers). Sin key → /v1/trades vacío honesto.
+  NODEREAL_API_KEY?: string;
 }
 
 const CHAIN_ID = 56; // BSC mainnet.
@@ -431,6 +433,83 @@ interface TokenTx {
   contractAddress: string;
 }
 
+/** Un item de nr_getAssetTransfers (NodeReal/MegaNode, estilo Alchemy). */
+interface NrTransfer {
+  hash: string;
+  from: string;
+  to: string;
+  value: string; // hex (0x…)
+  asset: string | null; // símbolo
+  contractAddress: string | null;
+  decimal: string | null; // hex (ej. "0x12" = 18)
+  blockTimeStamp: number; // unix segundos
+  category: string;
+}
+
+/** POST JSON-RPC (single o batch) al endpoint NodeReal; devuelve los `result`. */
+async function nodeRealRpc(
+  endpoint: string,
+  calls: Array<{ method: string; params: unknown[] }>,
+): Promise<unknown[]> {
+  const payload = calls.map((c, i) => ({ jsonrpc: "2.0", id: i, method: c.method, params: c.params }));
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`nodereal ${res.status}`);
+  const body = (await res.json()) as
+    | Array<{ id: number; result?: unknown }>
+    | { id: number; result?: unknown };
+  const arr = Array.isArray(body) ? body : [body];
+  const out: unknown[] = new Array(calls.length).fill(undefined);
+  for (const item of arr) {
+    if (item && typeof item.id === "number") out[item.id] = item.result;
+  }
+  return out;
+}
+
+/**
+ * nr_getAssetTransfers en BSC vía NodeReal. Filtra por UNA dirección, así que
+ * lanzamos dos llamadas en un batch JSON-RPC (fromAddress + toAddress) y mergeamos
+ * sus `transfers` para tener ambas piernas del swap. Solo ERC-20 (category "20"),
+ * misma semántica que el antiguo tokentx. Sin key → []. TTL del cache lo aporta getTrades.
+ *
+ * Nota: NodeReal exige `toBlock` numérico (no acepta "latest") y `fromBlock < toBlock`;
+ * el método topa a 100k bloques por rango. Anclamos a los ~90k bloques más recientes
+ * (~3-4 días en BSC) leyendo el head del PROPIO NodeReal (misma altura que los transfers).
+ */
+async function fetchAssetTransfers(env: Env, addr: string): Promise<NrTransfer[]> {
+  const key = env.NODEREAL_API_KEY;
+  if (!key) return [];
+  const endpoint = `https://bsc-mainnet.nodereal.io/v1/${key}`;
+
+  const [headHex] = await nodeRealRpc(endpoint, [{ method: "eth_blockNumber", params: [] }]);
+  const latest = hexToBigInt(headHex);
+  if (latest === 0n) throw new Error("nodereal head 0");
+  const toBlock = "0x" + latest.toString(16);
+  const fromBlock = "0x" + (latest > 90000n ? latest - 90000n : 0n).toString(16);
+
+  const base = {
+    category: ["20"],
+    order: "desc",
+    maxCount: "0x64", // 100 por pierna; el front muestra ≤20, cap a 50.
+    excludeZeroValue: true,
+    fromBlock,
+    toBlock,
+  };
+  const [outLegs, inLegs] = await nodeRealRpc(endpoint, [
+    { method: "nr_getAssetTransfers", params: [{ ...base, fromAddress: addr }] },
+    { method: "nr_getAssetTransfers", params: [{ ...base, toAddress: addr }] },
+  ]);
+  const merged: NrTransfer[] = [];
+  for (const leg of [outLegs, inLegs]) {
+    const t = (leg as { transfers?: NrTransfer[] } | undefined)?.transfers;
+    if (Array.isArray(t)) merged.push(...t);
+  }
+  return merged;
+}
+
 async function getTrades(env: Env, address: string): Promise<TradesResponse> {
   const addr = address.toLowerCase();
   const cacheKey = `trades:v1:${addr}`;
@@ -446,29 +525,25 @@ async function getTrades(env: Env, address: string): Promise<TradesResponse> {
     source: "onchain",
   };
 
+  // Sin key de NodeReal el feed no puede traer datos → vacío honesto (el worker
+  // sigue vivo para balances/summary, que son keyless). No cacheamos el vacío.
+  if (!env.NODEREAL_API_KEY) return empty;
+
   let rows: TokenTx[] = [];
   try {
-    // Etherscan API V2 multichain (chainid=56 = BSC). El endpoint clásico
-    // api.bscscan.com V1 quedó DEPRECADO (responde NOTOK). La misma API key de
-    // Etherscan/BscScan (env.BSCSCAN_API_KEY) sirve aquí. Sin key → NOTOK →
-    // result no-array → estado vacío honesto (abajo).
-    const url = new URL("https://api.etherscan.io/v2/api");
-    url.searchParams.set("chainid", String(CHAIN_ID));
-    url.searchParams.set("module", "account");
-    url.searchParams.set("action", "tokentx");
-    url.searchParams.set("address", addr);
-    url.searchParams.set("sort", "desc");
-    url.searchParams.set("page", "1");
-    url.searchParams.set("offset", "200");
-    if (env.BSCSCAN_API_KEY) url.searchParams.set("apikey", env.BSCSCAN_API_KEY);
-
-    const res = await fetch(url.toString(), { headers: { accept: "application/json" } });
-    if (res.ok) {
-      const body = (await res.json()) as { status?: string; result?: unknown };
-      if (Array.isArray(body.result)) rows = body.result as TokenTx[];
-    }
+    const transfers = await fetchAssetTransfers(env, addr);
+    rows = transfers.map((t) => ({
+      hash: t.hash,
+      timeStamp: String(t.blockTimeStamp ?? 0),
+      from: t.from,
+      to: t.to,
+      value: t.value, // hex; BigInt() lo parsea abajo
+      tokenSymbol: t.asset ?? "?",
+      tokenDecimal: t.decimal ?? "18", // hex "0x12"; Number() lo parsea
+      contractAddress: t.contractAddress ?? "",
+    }));
   } catch {
-    // Estado vacío honesto (200) si BscScan falla / no hay key.
+    // Estado vacío honesto (200) si NodeReal falla.
   }
 
   if (rows.length === 0) {
@@ -533,7 +608,7 @@ async function getTrades(env: Env, address: string): Promise<TradesResponse> {
   return out;
 }
 
-/** BscScan `value` viene en decimal (base units), no hex. */
+/** Parsea `value` a BigInt. BigInt() acepta hex ("0x…", de NodeReal) y decimal. */
 function hexToBigIntFromDec(v: string): bigint {
   try {
     return BigInt(v);

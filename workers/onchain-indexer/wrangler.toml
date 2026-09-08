@@ -1,7 +1,7 @@
 # onchain-indexer — Worker indexer onchain BSC (agent-street).
 # Proyecto SEPARADO del Pages/app; se despliega con `wrangler deploy` desde este dir.
 # Lee datos REALES de un agent_wallet en BSC (chainId 56): balances via RPC público,
-# precios via DexScreener (keyless), trades via BscScan (API key opcional).
+# precios via DexScreener (keyless), trades via NodeReal/MegaNode (nr_getAssetTransfers).
 name = "agent-street-onchain-indexer"
 main = "src/index.ts"
 compatibility_date = "2026-08-17"
@@ -22,8 +22,9 @@ ALLOWED_ORIGIN = "*"
 #   https://bsc-dataseed1.defibit.io  ·  https://bsc.publicnode.com
 BSC_RPC_URL = "https://bsc-dataseed.bnbchain.org"
 
-# Secret OPCIONAL (no en el repo):  wrangler secret put BSCSCAN_API_KEY
-# /v1/trades usa Etherscan API V2 multichain (chainid=56); api.bscscan.com V1 quedó
-# DEPRECADO. La MISMA key de Etherscan/BscScan sirve. SIN key el upstream responde
-# NOTOK y /v1/trades devuelve { trades:[], count:0 } con 200 (vacío honesto, no error).
-# Sacar key gratis en https://etherscan.io/apis  (una key vale para todas las chains).
+# Secret (no en el repo):  wrangler secret put NODEREAL_API_KEY
+# /v1/trades usa NodeReal/MegaNode nr_getAssetTransfers (BSCTrace). Etherscan V2 NO
+# tiene free tier para BSC (responde NOTOK), por eso se migró a NodeReal, que sí lo
+# tiene. SIN key /v1/trades devuelve { trades:[], count:0 } con 200 (vacío honesto).
+# Sacar key gratis en https://dashboard.nodereal.io  (BNB Chain / BSC Mainnet).
+# Para `wrangler dev` local, poner NODEREAL_API_KEY=<key> en .dev.vars (gitignored).

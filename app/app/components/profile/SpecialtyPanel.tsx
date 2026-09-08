@@ -103,10 +103,6 @@ export function SpecialtyPanel({
         <>
           <p className="text-sm text-text-2">{agent.description}</p>
           {tags.length > 0 && <div className="mt-3"><Chips items={tags} /></div>}
-          <Note>
-            PnL / win-rate need NAV history and are labeled "since indexed" once an
-            indexer key is set — never estimated here.
-          </Note>
         </>
       ) : null}
 

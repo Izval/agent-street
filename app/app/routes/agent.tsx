@@ -13,22 +13,17 @@ import { getProfileMeta } from "../lib/profile";
 import { AppShell } from "../components/AppShell";
 import { AgentCard } from "../components/AgentCard";
 import { CollectionCarousel } from "../components/CollectionCarousel";
-import { Card } from "../components/Card";
 import { SaveButton } from "../components/SaveButton";
 import { AgentAccessPanel } from "../components/AgentAccessPanel";
 import { AgentBackdrop } from "../components/profile/AgentBackdrop";
-import { DashboardChart } from "../components/profile/DashboardChart";
-import { ProfileCard } from "../components/profile/ProfileCard";
+import { ProfileIdentity } from "../components/profile/ProfileIdentity";
+import { ProfileAbout } from "../components/profile/ProfileAbout";
+import { ProfileStats } from "../components/profile/ProfileStats";
 import { TransactionsPanel } from "../components/profile/TransactionsPanel";
 import { ClmmSpecialty } from "../components/profile/ClmmSpecialty";
-import { SpecialtyPanel } from "../components/profile/SpecialtyPanel";
-import { HireRail } from "../components/profile/HireRail";
 import {
-  TrackRecord,
   ReputationSection,
-  AllocationSection,
   EquitySection,
-  ActivitySection,
   SkillsSection,
 } from "../components/profile/sections";
 
@@ -123,20 +118,15 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
       activeSubcategory={agent.subcategory ?? undefined}
     >
       <div className="pb-24 lg:pb-2">
-        <div className="py-2">
-          <Link
-            to={agent.subcategory ? `/subcategory/${agent.subcategory}` : "/"}
-            className="text-sm text-text-3 transition-colors hover:text-text"
-          >
-            ← {agent.subcategoryLabel ?? "Marketplace"}
-          </Link>
-        </div>
-
-        {/* ───────── Hiring dashboard hero ─────────
-            Image-forward, glassmorphism: the agent's own photo blurred behind
-            the whole hero (AgentBackdrop), main chart (Usage / Reputation tabs)
-            + profile CV card, then the latest-transactions table. Every template. */}
-        <div className="relative">
+        {/* ───────── Profile hero (full-bleed, image-driven) ─────────
+            Cancels the <main> padding (-mx/-mt) so the agent's own photo runs
+            edge-to-edge and FLUSH under the sticky header — no dead gap. The
+            blurred photo is the hero's background (like the home category
+            slideshow) and, since the panels are translucent glass, it bleeds
+            through and tints the whole block, so the description + stats read as
+            one image-driven surface. Columns: LEFT big identity photo + Hire ·
+            CENTER description · RIGHT stats + secondary chart. */}
+        <div className="relative -mx-4 -mt-6 md:-mx-8 md:-mt-8">
           <AgentBackdrop
             imageUrl={agent.imageUrl}
             accent={meta.accent}
@@ -144,13 +134,27 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
             category={meta.category}
           />
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6">
-            <DashboardChart detail={detail} usage={usage} />
-            <ProfileCard detail={detail} meta={meta} />
-          </div>
+          <div className="relative mx-auto max-w-[1440px] px-4 pt-4 md:px-8">
+            {/* Corner breadcrumb — tucked in the top-left over the backdrop. */}
+            <Link
+              to={agent.subcategory ? `/subcategory/${agent.subcategory}` : "/"}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-text-2 transition-colors hover:text-text"
+            >
+              ← {agent.subcategoryLabel ?? "Marketplace"}
+            </Link>
 
-          <div className="mt-4 lg:mt-6">
-            <TransactionsPanel detail={detail} hires={hires} />
+            <div className="mt-3 grid items-start gap-4 lg:grid-cols-[360px_minmax(0,1fr)_340px] lg:gap-6">
+              <ProfileIdentity detail={detail} meta={meta} />
+              <ProfileAbout detail={detail} meta={meta} />
+              {/* Stretch to the row height so both charts can split it 50/50. */}
+              <div className="self-stretch">
+                <ProfileStats detail={detail} meta={meta} usage={usage} />
+              </div>
+            </div>
+
+            <div className="mt-4 lg:mt-6">
+              <TransactionsPanel detail={detail} hires={hires} />
+            </div>
           </div>
         </div>
 
@@ -165,59 +169,35 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
             </h2>
           </div>
 
-          {/* Signature specialty block (template-specific), full width. */}
-          <div className="mb-4 lg:mb-6">
-            {meta.template === "clmm" ? (
+          {/* Signature specialty block (flagship CLMM only), full width. */}
+          {meta.template === "clmm" && (
+            <div className="mb-4 lg:mb-6">
               <ClmmSpecialty detail={detail} meta={meta} />
-            ) : (
-              <SpecialtyPanel detail={detail} meta={meta} />
-            )}
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-6">
-            <div className="flex min-w-0 flex-col gap-4 lg:gap-6">
-              {/* About */}
-              <Card className="p-5">
-                <p className="text-[15px] leading-relaxed text-text">
-                  {agent.description || "ERC-8004 agent on BNB Chain."}
-                </p>
-                <p className="mt-3 text-sm text-text-3">{meta.tagline}</p>
-              </Card>
-
-              <TrackRecord detail={detail} />
-              <ReputationSection detail={detail} />
-
-              <div className="grid gap-4 lg:grid-cols-2">
-                <AllocationSection detail={detail} />
-                <ActivitySection detail={detail} />
-              </div>
-
-              <EquitySection detail={detail} />
-              <SkillsSection detail={detail} />
-
-              {/* Agent-native access (MCP + direct A2A/ERC-8183). */}
-              <AgentAccessPanel
-                mcpUrl={mcpUrl}
-                agentId={agent.id}
-                agentName={agent.name}
-                services={services}
-                x402Supported={agent.x402Supported}
-              />
-
-              {/* Data provenance (Data Quality is a judged criterion). */}
-              <p className="text-xs text-text-3">
-                Sources: <span className="text-text-2">8004scan</span> (reputation ·
-                services) and <span className="text-text-2">onchain indexer</span>{" "}
-                (portfolio · trades). Missing data is shown as “—”, never estimated.
-              </p>
             </div>
+          )}
 
-            {/* Desktop: sticky hire rail. */}
-            <aside className="hidden lg:block">
-              <div className="sticky top-[120px]">
-                <HireRail detail={detail} meta={meta} />
-              </div>
-            </aside>
+          <div className="flex min-w-0 flex-col gap-4 lg:gap-6">
+            {/* About leads the hero (ProfileAbout); the body opens on reputation. */}
+            <ReputationSection detail={detail} />
+
+            <EquitySection detail={detail} />
+            <SkillsSection detail={detail} />
+
+            {/* Agent-native access (MCP + direct A2A/ERC-8183). */}
+            <AgentAccessPanel
+              mcpUrl={mcpUrl}
+              agentId={agent.id}
+              agentName={agent.name}
+              services={services}
+              x402Supported={agent.x402Supported}
+            />
+
+            {/* Data provenance (Data Quality is a judged criterion). */}
+            <p className="text-xs text-text-3">
+              Sources: <span className="text-text-2">8004scan</span> (reputation ·
+              services) and <span className="text-text-2">onchain indexer</span>{" "}
+              (portfolio · trades). Missing data is shown as “—”, never estimated.
+            </p>
           </div>
         </section>
 

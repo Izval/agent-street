@@ -24,6 +24,8 @@ export interface AreaChartProps {
   points: AreaChartPoint[];
   tone?: Tone;
   height?: number;
+  /** Fill the parent's height instead of a fixed px box (flex layouts). */
+  fill?: boolean;
 }
 
 function fmtValue(n: number): string {
@@ -39,16 +41,19 @@ const W = 600;
 const PAD_TOP = 8;
 const PAD_BOTTOM = 6;
 
-export function AreaChart({ points, tone = "brand", height = 160 }: AreaChartProps) {
+export function AreaChart({ points, tone = "brand", height = 160, fill = false }: AreaChartProps) {
   const [hover, setHover] = useState<number | null>(null);
   const gradId = useId();
   const color = TONE_VAR[tone];
+  // In fill mode the box grows to the parent; `height` stays as viewBox units.
+  const boxClass = fill ? "h-full" : "";
+  const boxStyle = fill ? undefined : { height };
 
   if (!points || points.length === 0) {
     return (
       <div
-        className="flex items-center justify-center rounded-[8px] border border-border bg-surface text-xs text-text-3"
-        style={{ height }}
+        className={"flex items-center justify-center rounded-[8px] border border-border bg-surface text-xs text-text-3 " + boxClass}
+        style={boxStyle}
       >
         No equity data yet
       </div>
@@ -75,7 +80,7 @@ export function AreaChart({ points, tone = "brand", height = 160 }: AreaChartPro
   const active = hover != null ? hover : null;
 
   return (
-    <div className="relative" style={{ height }}>
+    <div className={"relative " + boxClass} style={boxStyle}>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width="100%"

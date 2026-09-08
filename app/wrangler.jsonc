@@ -4,6 +4,19 @@
 	"compatibility_date": "2026-08-17",
 	"compatibility_flags": ["nodejs_compat"],
 	"main": "./workers/app.ts",
+	// workers.dev is OFF: this worker reaches its sibling workers via same-account
+	// service bindings (see `services` below), and those loop (Cloudflare error
+	// 1042) when the worker is invoked through its own *.workers.dev URL. On a real
+	// zone (the custom domain below) the bindings resolve fine, so agentstreet.trade
+	// is the single canonical URL.
+	"workers_dev": false,
+	// Custom domain (Cloudflare-registered zone in this account). `custom_domain`
+	// auto-provisions the DNS record + edge cert on deploy. Apex + www both serve
+	// this worker. The *.workers.dev URL keeps working alongside these.
+	"routes": [
+		{ "pattern": "agentstreet.trade", "custom_domain": true },
+		{ "pattern": "www.agentstreet.trade", "custom_domain": true }
+	],
 	// Nota: estos `vars` son los defaults de DEPLOY (prod). Para dev 100% local
 	// contra workers en localhost, sobrescribe con `.dev.vars` (gitignored).
 	"vars": {

@@ -113,10 +113,11 @@ function ProfileMenu({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
+        title={displayName}
         className="flex items-center gap-2 rounded-[999px] border border-border bg-surface-2 px-3 py-2 text-sm font-semibold text-text transition-colors hover:border-brand"
       >
         <span aria-hidden className="h-2 w-2 rounded-full bg-up" />
-        <span className="tnum">{displayName}</span>
+        <span className="tnum">…{address.slice(-4)}</span>
         <span aria-hidden className="text-[10px] text-text-3">
           ▾
         </span>

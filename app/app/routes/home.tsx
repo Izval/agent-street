@@ -5,6 +5,7 @@ import { createAgentsClient, type Agent } from "../lib/agents";
 import { createTrendingClient, reputationTrending } from "../lib/trending";
 import {
   CATEGORIES,
+  SUBCATEGORIES,
   REQUIRED_SUBCATEGORIES,
   subcategoryLabel,
   subcategoriesInCategory,
@@ -24,6 +25,17 @@ import { FeaturedRail, type FeatureItem } from "../components/FeaturedRail";
 import { LaunchTicker } from "../components/LaunchTicker";
 
 const PER_ROW = 8;
+
+/**
+ * Row order for the home listings: the 4 mandatory subcategories first (equal
+ * depth, always shown), then every other subcategory in taxonomy order. At
+ * render time the non-mandatory rows are filtered to those that actually have
+ * agents — so the home shows ALL categories that have agents inside, no empties.
+ */
+const ROW_ORDER: Subcategory[] = [
+  ...REQUIRED_SUBCATEGORIES,
+  ...SUBCATEGORIES.filter((c) => !REQUIRED_SUBCATEGORIES.includes(c)),
+];
 
 /**
  * Editorial copy + mosaic placement for the subcategory bento. `place` holds the
@@ -122,11 +134,11 @@ export async function loader() {
       resolvePortfolios(PORTFOLIO_RECIPES.slice(0, 6), agents).then((ps) =>
         ps.filter((p) => p.agents.length > 0),
       ),
-      ...REQUIRED_SUBCATEGORIES.map((c) => agents.list({ subcategory: c, limit: PER_ROW })),
+      ...ROW_ORDER.map((c) => agents.list({ subcategory: c, limit: PER_ROW })),
     ]);
 
   const rows = {} as Record<Subcategory, Agent[]>;
-  REQUIRED_SUBCATEGORIES.forEach((c, i) => {
+  ROW_ORDER.forEach((c, i) => {
     rows[c] = pages[i].agents;
   });
 
@@ -324,7 +336,10 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       {/* Listings + trending rail (below the hero) */}
       <div className="mt-10 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0">
-          {REQUIRED_SUBCATEGORIES.map((c) => (
+          {ROW_ORDER.filter(
+            (c) =>
+              REQUIRED_SUBCATEGORIES.includes(c) || (rows[c]?.length ?? 0) > 0,
+          ).map((c) => (
             <div className="mb-8" key={c}>
               <CollectionCarousel
                 title={subcategoryLabel(c)}

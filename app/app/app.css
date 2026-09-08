@@ -304,6 +304,17 @@ html[data-theme="dark"] {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
+/* Hero glass — a lighter frosted panel used on the agent profile hero so the
+   agent's blurred photo (AgentBackdrop) bleeds THROUGH the surfaces and tints
+   them: the description + stats read as one image-driven block rather than
+   opaque boxes floating on black. Heavier blur keeps text legible. */
+.glass-hero {
+  background-color: rgba(15, 18, 23, 0.42);
+  border: 1px solid var(--panel-border);
+  backdrop-filter: blur(22px) saturate(1.15);
+  -webkit-backdrop-filter: blur(22px) saturate(1.15);
+  box-shadow: inset 0 1px 0 var(--frost-highlight), var(--elev-2);
+}
 /* Command palette override: keep the frost blur/border but a near-opaque
    background so results stay legible over busy pages (overrides --frost-bg). */
 .search-frost {
@@ -395,6 +406,42 @@ html[data-theme="dark"] {
 
 /* Brand glow (hero, flagship badge, active). Scarce. */
 .glow-brand { background-image: var(--glow-brand); }
+
+/* Metallic gold — the "brushed crystal" sheen from the homepage bento art,
+   as an interactive surface (primary CTA). A vertical gold gradient with a
+   bright top highlight + darker base, a glossy inset top line and a soft brand
+   glow, so the button reads as machined metal rather than a flat fill. */
+.btn-metal {
+  background-image:
+    linear-gradient(180deg,
+      var(--brand-bright) 0%,
+      var(--brand) 46%,
+      var(--brand-active) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+    0 6px 18px rgba(240, 185, 11, 0.22);
+  transition: filter 0.18s ease, box-shadow 0.18s ease;
+}
+.btn-metal:hover {
+  filter: brightness(1.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+    0 8px 24px rgba(240, 185, 11, 0.3);
+}
+
+/* Metallic glass surface — a cool brushed-crystal panel that echoes the same
+   homepage texture, for the identity card. Frost glass + a faint diagonal
+   sheen sweep. Pair with `.glass-frost`. */
+.metal-frost {
+  background-image:
+    linear-gradient(135deg,
+      rgba(255, 255, 255, 0.06) 0%,
+      rgba(255, 255, 255, 0) 34%,
+      rgba(255, 255, 255, 0) 66%,
+      rgba(255, 255, 255, 0.04) 100%);
+}
 
 /* Scroll-reveal (JS adds .reveal-in when entering the viewport). */
 .reveal {

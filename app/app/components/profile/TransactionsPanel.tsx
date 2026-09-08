@@ -11,7 +11,6 @@ import { useMemo, useState } from "react";
 
 import type { AgentDetail, HireTx } from "../../lib/contracts";
 import { short, usd } from "../../lib/profile";
-import { Card } from "../Card";
 
 type Kind = "swap" | "hire";
 type Filter = "all" | Kind;
@@ -90,7 +89,7 @@ export function TransactionsPanel({
   ];
 
   return (
-    <Card className="p-5">
+    <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-text">Latest transactions</h2>
@@ -164,6 +163,6 @@ export function TransactionsPanel({
           made-up data.
         </p>
       )}
-    </Card>
+    </div>
   );
 }

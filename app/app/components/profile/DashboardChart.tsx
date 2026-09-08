@@ -70,11 +70,22 @@ function Callout({ label, value, hint }: { label: string; value: string; hint?: 
 
 /** Honest empty state that still reads as "designed": a shimmer skeleton behind
  *  one clear line, instead of a blank void (DESIGN.md §18/§21 — no fake data). */
-function Empty({ children, height = 160 }: { children: React.ReactNode; height?: number }) {
+function Empty({
+  children,
+  height = 160,
+  fill = false,
+}: {
+  children: React.ReactNode;
+  height?: number;
+  fill?: boolean;
+}) {
   return (
     <div
-      className="relative flex items-center justify-center overflow-hidden rounded-[8px] border border-border/60 bg-surface/40 px-6 text-center"
-      style={{ height }}
+      className={
+        "relative flex items-center justify-center overflow-hidden rounded-[8px] border border-border/60 bg-surface/40 px-6 text-center " +
+        (fill ? "h-full" : "")
+      }
+      style={fill ? undefined : { height }}
     >
       <div aria-hidden className="shimmer absolute inset-3 rounded-md opacity-25" />
       <p className="relative text-xs text-text-3">{children}</p>
@@ -85,14 +96,24 @@ function Empty({ children, height = 160 }: { children: React.ReactNode; height?:
 export function DashboardChart({
   detail,
   usage,
+  compact = false,
+  only,
 }: {
   detail: AgentDetail;
   usage: UsageSeries | null;
+  /** Secondary/rail placement: drop the KPI callouts and shrink the plot. */
+  compact?: boolean;
+  /** Pin to a single chart (no tab switcher) — for stacking both side rails. */
+  only?: Tab;
 }) {
-  const [tab, setTab] = useState<Tab>("usage");
+  const [tabState, setTab] = useState<Tab>(only ?? "usage");
   const [source, setSource] = useState<UsageSource>("demand");
 
+  // When pinned, the active chart is fixed; otherwise the tab drives it.
+  const tab = only ?? tabState;
+
   const kpis = getTrackRecord(detail).slice(0, 2);
+  const chartH = compact ? 130 : 200;
 
   const demandPoints = useMemo<AreaChartPoint[]>(() => {
     const pts = usage?.points ?? [];
@@ -113,16 +134,26 @@ export function DashboardChart({
   ];
 
   return (
-    <div className="glass-panel relative flex flex-col overflow-hidden rounded-xl p-5">
-      {/* Floating KPI callouts */}
-      <div className="mb-4 flex flex-wrap gap-3">
-        {kpis.map((k) => (
-          <Callout key={k.label} label={k.label} value={k.value} hint={k.hint} />
-        ))}
-      </div>
+    <div className={(compact ? "glass-hero p-4" : "glass-panel p-5") + " relative flex flex-col overflow-hidden rounded-xl" + (only ? " h-full" : "")}>
+      {/* Floating KPI callouts (headline stats live elsewhere in compact rails) */}
+      {!compact && (
+        <div className="mb-4 flex flex-wrap gap-3">
+          {kpis.map((k) => (
+            <Callout key={k.label} label={k.label} value={k.value} hint={k.hint} />
+          ))}
+        </div>
+      )}
 
-      {/* Chart body — switches by tab */}
-      <div className="min-h-[180px] flex-1">
+      {/* Pinned single-chart heading (no tabs) — name what it shows. */}
+      {only && (
+        <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-text-3">
+          {only === "usage" ? "Usage" : "Reputation"}
+        </div>
+      )}
+
+      {/* Chart body — switches by tab. When pinned it becomes a flex column so
+          the plot fills the panel's half of the rail. */}
+      <div className={(compact ? "" : "min-h-[180px] ") + "flex min-h-0 flex-1 flex-col"}>
         {tab === "usage" ? (
           <>
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -151,23 +182,25 @@ export function DashboardChart({
               </div>
             </div>
 
-            {source === "demand" ? (
-              demandTotal > 0 ? (
-                <AreaChart points={demandPoints} tone="brand" height={200} />
+            <div className="min-h-0 flex-1">
+              {source === "demand" ? (
+                demandTotal > 0 ? (
+                  <AreaChart points={demandPoints} tone="brand" height={chartH} fill={!!only} />
+                ) : (
+                  <Empty height={chartH} fill={!!only}>
+                    No demand recorded yet — views and hires we count ourselves will
+                    chart here as they accrue.
+                  </Empty>
+                )
+              ) : onchainPoints.length ? (
+                <AreaChart points={onchainPoints} tone="up" height={chartH} fill={!!only} />
               ) : (
-                <Empty height={200}>
-                  No demand recorded yet — views and hires we count ourselves will
-                  chart here as they accrue.
+                <Empty height={chartH} fill={!!only}>
+                  No onchain actions indexed. The trades feed needs an indexer API
+                  key — empty instead of made-up data.
                 </Empty>
-              )
-            ) : onchainPoints.length ? (
-              <AreaChart points={onchainPoints} tone="up" height={200} />
-            ) : (
-              <Empty height={200}>
-                No onchain actions indexed. The trades feed needs an indexer API
-                key — empty instead of made-up data.
-              </Empty>
-            )}
+              )}
+            </div>
           </>
         ) : (
           <>
@@ -175,37 +208,20 @@ export function DashboardChart({
               Score breakdown · 8004scan reputation dimensions
             </div>
             {repBars.length ? (
-              <BarCompare bars={repBars} unit="" />
+              <div className={only ? "flex min-h-0 flex-1 items-center" : ""}>
+                <BarCompare bars={repBars} unit="" />
+              </div>
             ) : (
-              <Empty height={200}>
+              <Empty height={chartH} fill={!!only}>
                 No reputation dimensions available for this agent yet.
               </Empty>
             )}
-            <div className="mt-4 grid grid-cols-3 gap-3">
-              <RepFact
-                label="Total score"
-                value={
-                  detail.reputation?.totalScore?.toFixed(1) ??
-                  String(detail.agent.score)
-                }
-              />
-              <RepFact
-                label="Reviews"
-                value={String(detail.reputation?.feedbacks ?? detail.agent.feedbacks)}
-              />
-              <RepFact
-                label="Avg rating"
-                value={
-                  (detail.reputation?.avgScore ?? detail.agent.avgScore)?.toFixed(1) ??
-                  "—"
-                }
-              />
-            </div>
           </>
         )}
       </div>
 
-      {/* Bottom tabs (DESIGN.md §5) */}
+      {/* Bottom tabs (DESIGN.md §5) — hidden when pinned to a single chart. */}
+      {!only && (
       <nav className="mt-4 flex gap-6 border-t border-border pt-3">
         {tabs.map((t) => (
           <button
@@ -223,15 +239,7 @@ export function DashboardChart({
           </button>
         ))}
       </nav>
-    </div>
-  );
-}
-
-function RepFact({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-border bg-surface-2 p-3">
-      <div className="text-[11px] text-text-3">{label}</div>
-      <div className="tnum mt-0.5 text-lg font-bold text-text">{value}</div>
+      )}
     </div>
   );
 }

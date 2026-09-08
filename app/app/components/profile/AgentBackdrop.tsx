@@ -35,13 +35,15 @@ export function AgentBackdrop({
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[760px] overflow-hidden"
+      className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[860px] overflow-hidden"
     >
       {/* 1 — deterministic on-brand base (also the no-image art). */}
       <div className="absolute inset-0" style={coverStyle(seed, accent)} />
 
-      {/* 2 — category bento art, blurred: rich backdrop that matches the home. */}
-      {bento && (
+      {/* 2 — category bento art, blurred: rich backdrop that matches the home.
+             Only as the fallback when the agent has NO photo — when it does, the
+             photo itself drives the hero and the bento would only muddy it. */}
+      {bento && !imageUrl && (
         <img
           src={bento}
           alt=""
@@ -51,34 +53,39 @@ export function AgentBackdrop({
         />
       )}
 
-      {/* 3 — the agent's own photo, large + blurred (the protagonist aura). */}
+      {/* 3 — the agent's own photo, large + blurred: the protagonist aura, used
+             as the hero's background exactly like the home category slideshow.
+             Anchored to the top so the face colors bleed across the whole field. */}
       {imageUrl && (
         <img
           {...imgProps}
           src={imageUrl}
           alt=""
           loading="lazy"
-          className={`absolute inset-0 h-full w-full scale-125 object-cover blur-3xl transition-opacity duration-700 ${
-            showImg ? "opacity-60" : "opacity-0"
+          className={`absolute inset-0 h-full w-full scale-110 object-cover object-top blur-2xl transition-opacity duration-700 ${
+            showImg ? "opacity-100" : "opacity-0"
           }`}
         />
       )}
 
-      {/* 4 — category tint wash so the whole field reads on-brand. */}
+      {/* 4 — category tint wash so the whole field reads on-brand (kept light so
+             the agent's own photo colour still leads). */}
       <div
         className="absolute inset-0"
-        style={{ background: `color-mix(in srgb, ${accent} 16%, transparent)` }}
+        style={{ background: `color-mix(in srgb, ${accent} 8%, transparent)` }}
       />
 
       {/* 5 — scarce brand glow (top-right). */}
       <div className="glow-brand absolute -right-24 -top-24 h-80 w-80" />
 
-      {/* 6 — top legibility + fade into the page background at the bottom. */}
+      {/* 6 — light top scrim + fade into the page background at the bottom, kept
+             gentle so the blurred photo stays visible across the field (like
+             the home category slideshow) while lower content stays legible. */}
       <div
         className="absolute inset-0"
         style={{
           background:
-            "linear-gradient(to bottom, rgba(11,14,17,0.25) 0%, rgba(11,14,17,0.5) 52%, var(--bg) 100%)",
+            "linear-gradient(to bottom, rgba(11,14,17,0.08) 0%, rgba(11,14,17,0.18) 48%, rgba(11,14,17,0.5) 78%, var(--bg) 100%)",
         }}
       />
     </div>

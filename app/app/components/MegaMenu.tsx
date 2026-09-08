@@ -239,15 +239,6 @@ export function MegaMenu({
                     "linear-gradient(90deg, rgba(11,14,17,0.95) 0%, rgba(11,14,17,0.9) 52%, rgba(11,14,17,0.35) 78%, rgba(11,14,17,0.12) 100%)",
                 }}
               />
-              {/* Oversized glyph watermark. */}
-              <span
-                aria-hidden
-                className="pointer-events-none absolute -right-8 top-1/2 -translate-y-1/2 select-none text-[13rem] leading-none opacity-[0.12]"
-                style={{ color: openCategoryDef.accent }}
-              >
-                {openCategoryDef.glyph}
-              </span>
-
               <div className="relative mx-auto grid max-w-[1440px] grid-cols-1 gap-8 px-4 py-7 md:grid-cols-[1fr_300px] md:px-8">
                 {/* Sub-subcategories (level 2). */}
                 <div>

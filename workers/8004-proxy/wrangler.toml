@@ -36,7 +36,7 @@ SCAN_8004_BASE = "https://8004scan.io/api/v1/public"
 # capital vive fuera del owner/EOA), así que el capital NO puede ser filtro DURO;
 # txCount es la señal fiable. CALIBRAR con GET /v1/corpus/stats: subir MIN_TX_COUNT
 # tras enriquecer todo el corpus, vigilando que las 4 obligatorias no se vacíen.
-MIN_TX_COUNT = "1"      # nonce mínimo (tx salientes reales) — señal principal
+MIN_TX_COUNT = "5"      # nonce mínimo (tx salientes reales) — señal principal de actividad
 MIN_CAPITAL_USD = "1"   # capital USD como ESCAPE (OR), no requisito; 0 lo desactiva
 DROP_UNMEASURED = "0"   # "1" ⇒ descarta también los no medibles (arriesga vaciar grid)
 # Construcción del corpus (cron rotatorio; el feed anónimo tiene rate-limit bajo).

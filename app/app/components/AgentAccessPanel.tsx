@@ -12,7 +12,6 @@
 
 import { useState } from "react";
 import { Link } from "react-router";
-import { Card } from "./Card";
 import { X402Badge, EndpointBadge } from "./Badge";
 import type { AgentServices } from "../lib/contracts";
 
@@ -81,20 +80,36 @@ export function AgentAccessPanel({
   const a2a = services?.a2aEndpoint ?? null;
 
   return (
-    <Card className="mt-4 p-5">
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-text">Agent access</h2>
+    // Discreet by design: agents read this from the agent's address / the
+    // marketplace MCP — a human rarely needs it, so it's a collapsed disclosure,
+    // not a prominent panel. Closed by default; open to see the exact calls.
+    <details className="group mt-2 rounded-lg border border-border/60 bg-surface/40">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-2.5 text-xs text-text-3 transition-colors hover:text-text-2 [&::-webkit-details-marker]:hidden">
+        <span className="flex items-center gap-2">
+          <span aria-hidden className="text-text-3 transition-transform group-open:rotate-90">›</span>
+          <span className="font-semibold text-text-2">Agent access</span>
+          <span className="hidden sm:inline">— MCP · A2A · programmatic hire</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          {x402 && <span className="rounded-[999px] border border-border px-1.5 py-0.5 text-[10px] font-semibold">x402</span>}
+          {erc8183 && <span className="rounded-[999px] border border-border px-1.5 py-0.5 text-[10px] font-semibold">8183</span>}
+          {a2a && <span className="rounded-[999px] border border-border px-1.5 py-0.5 text-[10px] font-semibold">A2A</span>}
+        </span>
+      </summary>
+
+      <div className="border-t border-border/60 px-4 pb-4 pt-3">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <p className="text-xs text-text-3">
+          Consume this agent programmatically — an orchestrator connects to the
+          marketplace MCP server and calls these tools, no human in the loop.
+        </p>
         <Link
           to="/for-agents"
-          className="text-xs font-semibold text-text-3 transition-colors hover:text-brand"
+          className="shrink-0 text-xs font-semibold text-text-3 transition-colors hover:text-brand"
         >
           For agents →
         </Link>
       </div>
-      <p className="mb-3 text-xs text-text-3">
-        Consume this agent programmatically. An orchestrator connects to the marketplace
-        MCP server and calls these tools — no scraping, no human in the loop.
-      </p>
 
       {/* MCP endpoint */}
       <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2">
@@ -153,6 +168,7 @@ export function AgentAccessPanel({
           </p>
         </div>
       )}
-    </Card>
+      </div>
+    </details>
   );
 }

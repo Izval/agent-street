@@ -17,6 +17,8 @@ export interface FeatureItem {
   pill?: string;
   accent?: string;
   cover?: string;
+  /** Optional real image (e.g. an agent avatar) shown as the card cover. */
+  imageSrc?: string;
 }
 
 function FeatureCard({ item }: { item: FeatureItem }) {
@@ -26,6 +28,17 @@ function FeatureCard({ item }: { item: FeatureItem }) {
       className="group relative flex h-[176px] flex-col justify-end overflow-hidden rounded-xl p-4 shadow-[var(--elev-1)] transition-shadow duration-200 hover:shadow-[var(--elev-2)]"
       style={coverStyle(item.cover ?? item.title, item.accent)}
     >
+      {/* Real cover image (agent avatar) over the on-brand art fallback. */}
+      {item.imageSrc && (
+        <img
+          src={item.imageSrc}
+          alt=""
+          aria-hidden
+          loading="lazy"
+          decoding="async"
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]"
+        />
+      )}
       {item.pill && (
         <span
           className="absolute left-3 top-3 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-bg"
