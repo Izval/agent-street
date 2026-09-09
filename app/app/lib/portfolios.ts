@@ -7,10 +7,10 @@
  * Different concept, different types, different routes (`/portfolios`,
  * `/portfolio/:slug`). Keep them apart.
  *
- * Honesty (DESIGN.md §18): a portfolio never shows invented ROI/PnL. "Performs
+ * Data rule (DESIGN.md §18): a portfolio never shows invented ROI/PnL. "Performs
  * well" is expressed with REAL signals only — 8004scan reputation (score /
  * verified / x402) aggregated across members, and (Phase B) first-party demand
- * counters. Everything nullable, honest empty states.
+ * counters. Everything nullable, real empty states.
  *
  * No IVL coupling (CLAUDE.md §2): curated recipes are defined by SUBCATEGORY
  * slots (any of the ~23, across the 7 categories) and resolve to real agents from
@@ -49,7 +49,7 @@ export interface PortfolioSlot {
 
 /**
  * Curated recipe: a portfolio defined by taxonomy, not by frozen agentIds.
- * Resolved to real agents at load — always populated, honest, IVL-agnostic.
+ * Resolved to real agents at load — always populated, real, IVL-agnostic.
  */
 export interface PortfolioRecipe {
   slug: string;
@@ -62,15 +62,20 @@ export interface PortfolioRecipe {
   slots: PortfolioSlot[];
 }
 
+/** Discoverability of a user portfolio (mirrors the worker). */
+export type PortfolioVisibility = "public" | "unlisted" | "private";
+
 /** First-party gamification counters (Phase B). null when there's no backend/data. */
 export interface PortfolioStats {
   views: number | null;
   copies: number | null;
   hireAlls: number | null;
   followers: number | null;
+  /** Public heart/like count (per-device toggle). */
+  likes: number | null;
 }
 
-/** Honest aggregate over the resolved members — REAL 8004scan fields only. */
+/** Aggregate over the resolved members — REAL 8004scan fields only. */
 export interface PortfolioAggregate {
   count: number;
   /** Mean of member scores. null if no member has a score. */
@@ -97,6 +102,7 @@ export interface ResolvedPortfolio {
   aggregate: PortfolioAggregate;
   creator?: { address: string; label?: string } | null;
   stats?: PortfolioStats | null;
+  visibility?: PortfolioVisibility;
 }
 
 // ---------------------------------------------------------------- //
@@ -337,11 +343,12 @@ export interface UserPortfolioInput {
   creator?: { address: string; label?: string } | null;
   createdAt?: string;
   stats?: PortfolioStats | null;
+  visibility?: PortfolioVisibility;
 }
 
 /**
  * Resolve a user portfolio by fetching each member from the 8004-proxy. Members
- * that don't resolve (delisted, wrong id) are reported in `missing` — honest,
+ * that don't resolve (delisted, wrong id) are reported in `missing` —
  * never a placeholder. Aggregate is the same real-8004scan computation.
  */
 export async function resolveUserPortfolio(
@@ -369,12 +376,13 @@ export async function resolveUserPortfolio(
     aggregate: aggregate(picked),
     creator: pf.creator ?? null,
     stats: pf.stats ?? null,
+    visibility: pf.visibility,
   };
 }
 
 // ---------------------------------------------------------------- //
 // "Pairs well with" — complementary subcategories for the agent page.
-// Honest RECOMMENDATION (not a co-hire claim; that's the affinity engine).
+// Real RECOMMENDATION (not a co-hire claim; that's the affinity engine).
 // ---------------------------------------------------------------- //
 
 /** Complementary subcategories per subcategory. Absent → falls back to same category. */
@@ -445,4 +453,56 @@ export async function fetchPairsWith(
     if (!progressed) break;
   }
   return out;
+}
+
+/**
+ * Fallback recommendations: peers from the SAME category (the union of its
+ * subcategories), ranked and round-robined for variety. Used when an agent has
+ * no subcategory (so `fetchPairsWith` has nothing complementary to pull) — every
+ * agent belongs to a category, so the "Pairs well with" rail is never empty.
+ */
+export async function fetchCategoryPeers(
+  agents: AgentsClient,
+  category: Category,
+  excludeId: string,
+  limit = 8,
+): Promise<Agent[]> {
+  const subs = subcategoriesInCategory(category).map((c) => c.id);
+  if (subs.length === 0) return [];
+  const pools = await fetchSubcategoryPools(agents, subs);
+  const out: Agent[] = [];
+  const seen = new Set<string>([excludeId]);
+  const lists = subs.map((s) => pools.get(s) ?? []);
+  for (let i = 0; out.length < limit; i++) {
+    let progressed = false;
+    for (const list of lists) {
+      const a = list[i];
+      if (!a) continue;
+      progressed = true;
+      if (seen.has(a.id)) continue;
+      seen.add(a.id);
+      out.push(a);
+      if (out.length >= limit) break;
+    }
+    if (!progressed) break;
+  }
+  return out;
+}
+
+/**
+ * Last-resort recommendations: the top-ranked agents in the corpus. Used when an
+ * agent has neither a subcategory nor a category (the classifier matched no
+ * keyword), so the "Pairs well with" rail still shows real, reputation-ranked
+ * agents instead of nothing.
+ */
+export async function fetchPopularPeers(
+  agents: AgentsClient,
+  excludeId: string,
+  limit = 8,
+): Promise<Agent[]> {
+  const page = await agents.list({ limit: limit + 4 }).catch(() => null);
+  if (!page) return [];
+  return rankAgents(page.agents)
+    .filter((a) => a.id !== excludeId)
+    .slice(0, limit);
 }

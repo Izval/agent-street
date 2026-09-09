@@ -122,7 +122,8 @@ export interface PortfolioResponse {
   source: "onchain";
 }
 
-export type TradeSide = "buy" | "sell" | "swap";
+// "add"/"remove" = v3 liquidity mint/burn (tokens for a position NFT), not a swap.
+export type TradeSide = "buy" | "sell" | "swap" | "add" | "remove";
 
 export interface Trade {
   hash: string;
@@ -137,6 +138,8 @@ export interface Trade {
   dex: string | null; // "PancakeSwap v3", etc.
   /** URL to the explorer (BscScan) to verify the tx. */
   explorerUrl: string;
+  /** Chain of the tx (56 mainnet · 97 testnet). The agent operates on both. */
+  chainId?: number;
 }
 
 export interface TradesResponse {

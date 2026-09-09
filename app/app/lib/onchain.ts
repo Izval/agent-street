@@ -48,11 +48,13 @@ export function createOnchainClient(opts: {
         `${base}/v1/portfolio/${encodeURIComponent(address)}`,
         opts.signal,
       ),
-    /** Recent onchain swaps. null if the indexer doesn't respond. */
-    trades: (address: string) =>
+    /** Recent onchain activity (swaps + v3 liquidity mints/burns) on one chain.
+     *  `chain` (56 mainnet · 97 testnet) — the agent can be active on both, so the
+     *  caller queries each chain and merges. null if the indexer doesn't respond. */
+    trades: (address: string, chain?: number) =>
       getJson<TradesResponse>(
         doFetch,
-        `${base}/v1/trades/${encodeURIComponent(address)}`,
+        `${base}/v1/trades/${encodeURIComponent(address)}${chain ? `?chain=${chain}` : ""}`,
         opts.signal,
       ),
   };

@@ -9,8 +9,10 @@
  * (curated portfolios resolve app-side from the 8004-proxy).
  */
 
-import type { PortfolioStats } from "./portfolios";
+import type { PortfolioStats, PortfolioVisibility } from "./portfolios";
 import type { Subcategory } from "./taxonomy";
+
+export type { PortfolioVisibility };
 
 export interface UserPortfolioMember {
   agentId: string;
@@ -26,6 +28,8 @@ export interface UserPortfolio {
   createdAt: string;
   stats: PortfolioStats;
   source: "user";
+  /** Absent on legacy records ⇒ treat as "public". */
+  visibility?: PortfolioVisibility;
 }
 
 export interface CreatePortfolioInput {
@@ -33,6 +37,15 @@ export interface CreatePortfolioInput {
   tagline: string;
   members: UserPortfolioMember[];
   creator?: { address: string; label?: string } | null;
+  visibility?: PortfolioVisibility;
+}
+
+/** Fields an owner may edit (all optional). */
+export interface UpdatePortfolioInput {
+  name?: string;
+  tagline?: string;
+  members?: UserPortfolioMember[];
+  visibility?: PortfolioVisibility;
 }
 
 export interface CreatePortfolioResult {
@@ -41,7 +54,14 @@ export interface CreatePortfolioResult {
   ownerSecret: string;
 }
 
-export type PortfolioEvent = "view" | "copy" | "hire_all" | "follow" | "unfollow";
+export type PortfolioEvent =
+  | "view"
+  | "copy"
+  | "hire_all"
+  | "follow"
+  | "unfollow"
+  | "like"
+  | "unlike";
 export type LeaderboardWindow = "7d" | "30d" | "all";
 
 export interface LeaderboardRow {
@@ -143,6 +163,30 @@ export function createPortfoliosClient(opts: {
         const res = await doFetch(`${base}/v1/portfolios/${encodeURIComponent(slug)}`, {
           method: "DELETE",
           headers: { "x-owner-secret": ownerSecret },
+          signal: opts.signal,
+        });
+        return res.ok;
+      } catch {
+        return false;
+      }
+    },
+
+    /** Edit a portfolio the caller owns (needs the owner secret). */
+    async update(
+      slug: string,
+      ownerSecret: string,
+      patch: UpdatePortfolioInput,
+    ): Promise<boolean> {
+      if (!enabled) return false;
+      try {
+        const res = await doFetch(`${base}/v1/portfolios/${encodeURIComponent(slug)}`, {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json",
+            "x-owner-secret": ownerSecret,
+          },
+          body: JSON.stringify(patch),
           signal: opts.signal,
         });
         return res.ok;

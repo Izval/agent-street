@@ -22,6 +22,7 @@ import { WalletButton } from "./WalletButton";
 import { CommandPalette } from "./CommandPalette";
 import { openCommandPalette } from "./SearchCommand";
 import { ComparePill } from "./ComparePill";
+import { PortfolioDraftPill } from "./PortfolioDraftPill";
 import type { Category, Subcategory } from "../lib/taxonomy";
 
 function Logo() {
@@ -207,8 +208,10 @@ export function AppShell({
 
       <Footer agentCount={resolvedCount} network={network} />
 
-      {/* ⌘K command palette + floating compare pill (both client-only, SSR-safe). */}
+      {/* ⌘K command palette + floating compare / portfolio-draft pills
+          (all client-only, SSR-safe). */}
       <CommandPalette />
+      <PortfolioDraftPill />
       <ComparePill />
     </div>
   );

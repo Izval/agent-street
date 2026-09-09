@@ -19,14 +19,19 @@ const PAGE_SIZE = 10;
 
 type Kind = "swap" | "hire";
 type Filter = "all" | Kind;
+/** Chip tone: swap · liquidity (v3 mint/burn) · hire. */
+type Tone = "swap" | "lp" | "hire";
 
 interface Row {
-  kind: Kind;
+  kind: Kind; // filter bucket (onchain "swap" covers swaps + liquidity)
+  tone: Tone; // chip styling/label
+  label: string; // chip text ("Swap" · "Add LP" · "Remove LP" · "Hire")
   ts: string; // ISO
   detail: string;
   value: string;
   hash: string;
   explorerUrl: string | null;
+  chainId?: number; // 56 mainnet · 97 testnet
 }
 
 function fmtTime(iso: string): string {
@@ -41,16 +46,38 @@ function fmtTime(iso: string): string {
   });
 }
 
-const KIND_LABEL: Record<Kind, string> = { swap: "Swap", hire: "Hire" };
+const TONE_CLS: Record<Tone, string> = {
+  hire: "bg-brand/15 text-brand",
+  lp: "", // liquidity accent applied inline (not a Tailwind color token)
+  swap: "bg-surface-2 text-text-2",
+};
 
-function KindTag({ kind }: { kind: Kind }) {
-  const cls =
-    kind === "hire"
-      ? "bg-brand/15 text-brand"
-      : "bg-surface-2 text-text-2";
+function KindTag({ tone, label }: { tone: Tone; label: string }) {
+  // v3 liquidity ops use the Liquidity-Providing category accent (teal) so they
+  // read distinctly from plain swaps while staying on-palette.
+  const style =
+    tone === "lp"
+      ? {
+          backgroundColor: "color-mix(in srgb, var(--accent-liquidity) 16%, transparent)",
+          color: "var(--accent-liquidity)",
+        }
+      : undefined;
   return (
-    <span className={`rounded-[999px] px-2 py-0.5 text-[11px] font-semibold ${cls}`}>
-      {KIND_LABEL[kind]}
+    <span
+      className={`rounded-[999px] px-2 py-0.5 text-[11px] font-semibold ${TONE_CLS[tone]}`}
+      style={style}
+    >
+      {label}
+    </span>
+  );
+}
+
+/** Testnet chip — the flagship rebalancer runs its v3 positions on chain 97. */
+function ChainTag({ chainId }: { chainId?: number }) {
+  if (chainId !== 97) return null;
+  return (
+    <span className="rounded-[999px] bg-surface-2 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-3">
+      Testnet
     </span>
   );
 }
@@ -66,22 +93,32 @@ export function TransactionsPanel({
   const [page, setPage] = useState(0);
 
   const rows = useMemo<Row[]>(() => {
-    const swaps: Row[] = (trades?.trades ?? []).map((t) => ({
-      kind: "swap",
-      ts: t.ts,
-      detail: `${t.side} ${t.tokenIn}→${t.tokenOut}`,
-      value: t.valueUsd != null ? usd(t.valueUsd) : "—",
-      hash: t.hash,
-      explorerUrl: t.explorerUrl,
-    }));
+    const swaps: Row[] = (trades?.trades ?? []).map((t) => {
+      const isLp = t.side === "add" || t.side === "remove";
+      const label = t.side === "add" ? "Add LP" : t.side === "remove" ? "Remove LP" : "Swap";
+      return {
+        kind: "swap" as const,
+        tone: (isLp ? "lp" : "swap") as Tone,
+        label,
+        ts: t.ts,
+        detail: `${t.side} ${t.tokenIn}→${t.tokenOut}`,
+        value: t.valueUsd != null ? usd(t.valueUsd) : "—",
+        hash: t.hash,
+        explorerUrl: t.explorerUrl,
+        chainId: t.chainId,
+      };
+    });
     const hireRows: Row[] = (hires ?? []).map((h) => ({
-      kind: "hire",
+      kind: "hire" as const,
+      tone: "hire" as Tone,
+      label: "Hire",
       ts: h.settledAt,
       detail: h.task || "Hire",
       value:
         h.amount != null ? `${h.amount} ${h.assetSymbol ?? ""}`.trim() : "—",
       hash: h.txHash,
       explorerUrl: h.explorerUrl,
+      chainId: h.network === "bsc-testnet" ? 97 : undefined,
     }));
     return [...swaps, ...hireRows].sort((a, b) => (a.ts < b.ts ? 1 : -1));
   }, [trades, hires]);
@@ -142,9 +179,12 @@ export function TransactionsPanel({
             </thead>
             <tbody className="divide-y divide-border">
               {paged.map((r) => (
-                <tr key={`${r.kind}-${r.hash}`} className="text-text-2">
+                <tr key={`${r.kind}-${r.chainId ?? 56}-${r.hash}`} className="text-text-2">
                   <td className="py-2.5">
-                    <KindTag kind={r.kind} />
+                    <span className="inline-flex items-center gap-1.5">
+                      <KindTag tone={r.tone} label={r.label} />
+                      <ChainTag chainId={r.chainId} />
+                    </span>
                   </td>
                   <td className="py-2.5 font-medium text-text">{r.detail}</td>
                   <td className="tnum py-2.5 text-right">{r.value}</td>

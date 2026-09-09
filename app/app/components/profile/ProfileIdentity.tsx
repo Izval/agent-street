@@ -5,7 +5,8 @@
  * a tall portrait block edge-to-edge (object-cover) with a blurred copy of the same
  * image behind it for a color aura, over a deterministic on-brand base that also
  * serves as the no-image art. Name · role · badges · publisher sit in a band that
- * melts up from the image, then the primary Hire CTA + Save.
+ * melts up from the image; the heart (save) + "+" (add to a portfolio) float over
+ * the image top-right, and the Hire CTA + labeled Save sit in the action zone below.
  *
  * Marketplace-general: no listing is special-cased — everything comes from the
  * agent record + its category accent (meta).
@@ -20,6 +21,7 @@ import { short } from "../../lib/profile";
 import { coverStyle } from "../../lib/cover";
 import { useImageLoad } from "../../lib/useImageLoad";
 import { SaveButton } from "../SaveButton";
+import { AddToPortfolioButton } from "../AddToPortfolioButton";
 import { LiveBadge, TestnetBadge } from "../Badge";
 
 function initial(name: string) {
@@ -93,9 +95,10 @@ export function ProfileIdentity({
           />
         )}
 
-        {/* Save — floating top-right over the image. */}
-        <div className="absolute right-3 top-3 z-20">
+        {/* Save (heart) + add-to-portfolio (+) — floating top-right over the image. */}
+        <div className="absolute right-3 top-3 z-20 flex items-center gap-2">
           <SaveButton agent={snapshot} variant="icon" />
+          <AddToPortfolioButton agent={snapshot} />
         </div>
 
         {/* Vignette so the image melts into the identity band below. */}

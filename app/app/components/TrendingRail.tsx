@@ -57,7 +57,7 @@ export function TrendingRail({
   return (
     <aside
       aria-label={`${title} by demand`}
-      className={`glass-panel flex flex-col gap-3 self-start rounded-lg p-3 lg:sticky lg:top-24 ${className}`}
+      className={`glass-panel flex flex-col gap-3 self-start rounded-lg p-3 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7rem)] ${className}`}
     >
       {/* Header */}
       <div className="flex flex-col gap-2">
@@ -109,7 +109,7 @@ export function TrendingRail({
           hint="This ranking appears as soon as there is data to count."
         />
       ) : (
-        <ol className="flex flex-col">
+        <ol className="-mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1">
           {rows.map((row, i) => (
             <li key={row.agentId}>
               <TrendingRow

@@ -2,7 +2,7 @@
 //
 // Rol: la capa social/gamificación del marketplace. Guarda SETS de agentes
 // user-made ("frequently hired together" + copy-trading), cuenta eventos de
-// primera mano (view/copy/hire_all/follow) para un leaderboard honesto, y sirve
+// primera mano (view/copy/hire_all/follow/like) para un leaderboard real, y sirve
 // la afinidad "frequently hired together" REAL (co-hires) leída del worker
 // hire-x402 (que posee los hires y no filtra wallets).
 //
@@ -10,9 +10,9 @@
 // rate-limit + router. Tipos de salida ESPEJO de app/app/lib/portfolios-client.ts
 // (camelCase). Mantener en sync a mano (paquetes separados, sin cross-import).
 //
-// Honestidad (DESIGN.md §18): los contadores son reales (los contamos nosotros);
-// nada de ROI inventado. La app funciona SIN este worker (los curados se
-// resuelven app-side; aquí solo viven los user-made + la gamificación).
+// Data rule (DESIGN.md §18): counters are real (we count them ourselves); no
+// invented ROI. The app works WITHOUT this worker (curated sets resolve app-side;
+// only user-made sets + gamification live here).
 //
 // Endpoints:
 //   GET    /health
@@ -36,7 +36,9 @@ export interface Env {
 
 // --- Contrato de salida (espeja portfolios-client.ts) ------------------------
 type PortfolioEvent = "view" | "copy" | "hire_all" | "follow";
-type Counter = "views" | "copies" | "hireAlls" | "followers";
+type Counter = "views" | "copies" | "hireAlls" | "followers" | "likes";
+/** Discoverability: public (listed), unlisted (link-only), private (owner-only). */
+type Visibility = "public" | "unlisted" | "private";
 
 interface Member {
   agentId: string;
@@ -54,12 +56,15 @@ interface StoredPortfolio {
   creator: Creator | null;
   createdAt: string;
   source: "user";
+  /** Optional on legacy records; absent ⇒ treated as "public" (see visibilityOf). */
+  visibility?: Visibility;
 }
 interface Stats {
   views: number;
   copies: number;
   hireAlls: number;
   followers: number;
+  likes: number;
 }
 type UserPortfolio = StoredPortfolio & { stats: Stats };
 
@@ -69,7 +74,15 @@ const EVENT_COUNTER: Record<PortfolioEvent, Counter> = {
   hire_all: "hireAlls",
   follow: "followers",
 };
-const COUNTERS: Counter[] = ["views", "copies", "hireAlls", "followers"];
+const COUNTERS: Counter[] = ["views", "copies", "hireAlls", "followers", "likes"];
+
+/** Legacy records have no `visibility` field — treat them as public. */
+function visibilityOf(pf: StoredPortfolio): Visibility {
+  return pf.visibility ?? "public";
+}
+function parseVisibility(v: unknown): Visibility {
+  return v === "unlisted" || v === "private" ? v : "public";
+}
 
 // --- Límites ------------------------------------------------------------------
 const NAME_MAX = 80;
@@ -189,7 +202,13 @@ async function readStats(env: Env, slug: string): Promise<Stats> {
   const vals = await Promise.all(
     COUNTERS.map((c) => env.PORTFOLIOS_KV.get(kTotal(c, slug)).then((v) => parseInt(v || "0", 10) || 0)),
   );
-  return { views: vals[0], copies: vals[1], hireAlls: vals[2], followers: vals[3] };
+  return {
+    views: vals[0],
+    copies: vals[1],
+    hireAlls: vals[2],
+    followers: vals[3],
+    likes: vals[4],
+  };
 }
 async function bumpCounter(env: Env, c: Counter, slug: string, delta = 1): Promise<void> {
   const cur = parseInt((await env.PORTFOLIOS_KV.get(kTotal(c, slug))) || "0", 10) || 0;
@@ -247,7 +266,13 @@ async function enrich(env: Env, agentId: string): Promise<AgentMeta> {
 // POST /v1/portfolios — crear
 // ------------------------------------------------------------------ //
 async function handleCreate(request: Request, env: Env): Promise<Response> {
-  let body: { name?: unknown; tagline?: unknown; members?: unknown; creator?: unknown };
+  let body: {
+    name?: unknown;
+    tagline?: unknown;
+    members?: unknown;
+    creator?: unknown;
+    visibility?: unknown;
+  };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -294,6 +319,7 @@ async function handleCreate(request: Request, env: Env): Promise<Response> {
     creator,
     createdAt: new Date().toISOString(),
     source: "user",
+    visibility: parseVisibility(body.visibility),
   };
 
   await env.PORTFOLIOS_KV.put(kPf(slug), JSON.stringify(record));
@@ -310,11 +336,18 @@ async function handleCreate(request: Request, env: Env): Promise<Response> {
 async function loadPortfolio(env: Env, slug: string): Promise<StoredPortfolio | null> {
   return (await env.PORTFOLIOS_KV.get(kPf(slug), "json")) as StoredPortfolio | null;
 }
-async function handleGet(env: Env, slug: string): Promise<Response> {
+async function handleGet(request: Request, env: Env, slug: string): Promise<Response> {
   const pf = await loadPortfolio(env, slug);
   if (!pf) return json({ error: "not_found" }, env, 404);
+  // Private sets are gated by the device-held owner secret (no wallet auth
+  // exists) — a soft privacy: undiscoverable and only fetchable by the owner
+  // device. Public/unlisted are open so links can be shared.
+  const isPrivate = visibilityOf(pf) === "private";
+  if (isPrivate && !(await authOwner(request, env, slug))) {
+    return json({ error: "not_found" }, env, 404);
+  }
   const stats = await readStats(env, slug);
-  return json({ ...pf, stats } satisfies UserPortfolio, env, 200, 15);
+  return json({ ...pf, stats } satisfies UserPortfolio, env, 200, isPrivate ? 0 : 15);
 }
 
 // ------------------------------------------------------------------ //
@@ -335,10 +368,11 @@ async function handleList(url: URL, env: Env): Promise<Response> {
   const owner = url.searchParams.get("owner");
   const limit = Math.min(MAX_LIMIT, Math.max(1, Number(url.searchParams.get("limit")) || DEFAULT_LIMIT));
 
+  const ownerScoped = !!(owner && ADDR_RE.test(owner));
   let slugs: string[];
-  if (owner && ADDR_RE.test(owner)) {
-    const listing = await env.PORTFOLIOS_KV.list({ prefix: kOwnPrefix(owner) });
-    slugs = listing.keys.map((k) => k.name.slice(kOwnPrefix(owner).length));
+  if (ownerScoped) {
+    const listing = await env.PORTFOLIOS_KV.list({ prefix: kOwnPrefix(owner!) });
+    slugs = listing.keys.map((k) => k.name.slice(kOwnPrefix(owner!).length));
   } else {
     slugs = await listAllSlugs(env);
   }
@@ -352,6 +386,9 @@ async function handleList(url: URL, env: Env): Promise<Response> {
     }),
   );
   let portfolios = loaded.filter((p): p is UserPortfolio => p !== null);
+
+  // Public discovery only shows public sets; an owner sees all of their own.
+  if (!ownerScoped) portfolios = portfolios.filter((p) => visibilityOf(p) === "public");
 
   if (scope === "trending") {
     const demand = (p: UserPortfolio) => p.stats.copies * 3 + p.stats.hireAlls * 5 + p.stats.views;
@@ -379,6 +416,7 @@ async function handleLeaderboard(url: URL, env: Env): Promise<Response> {
     slugs.map(async (slug) => {
       const pf = await loadPortfolio(env, slug);
       if (!pf) return null;
+      if (visibilityOf(pf) !== "public") return null; // only public sets rank
       // Windowed: sum the daily buckets over the range; all-time: read totals.
       const [copies, hireAlls, views] = days
         ? await Promise.all([
@@ -393,7 +431,7 @@ async function handleLeaderboard(url: URL, env: Env): Promise<Response> {
 
   const cleaned = rows.filter((r): r is NonNullable<typeof r> => r !== null);
   cleaned.sort((a, b) => (b[counter] as number) - (a[counter] as number));
-  // Estado vacío honesto: sin demanda en la ventana → sólo las que tienen algún dato.
+  // Empty state: no demand in the window → only rows that have some data.
   const withData = cleaned.filter((r) => r.copies + r.hireAlls + r.views > 0);
   return json({ rows: withData.slice(0, limit), window: windowRaw, metric: metricRaw }, env, 200, 30);
 }
@@ -411,13 +449,17 @@ async function handleEvent(request: Request, env: Env, slug: string): Promise<Re
   } catch {
     return json({ error: "bad_json" }, env, 400);
   }
-  const type = body.type as PortfolioEvent | "unfollow";
+  const type = body.type as PortfolioEvent | "unfollow" | "like" | "unlike";
 
   try {
-    // Follow/unfollow: a per-viewer toggle (client owns idempotency via
-    // localStorage) → no server dedup, and it can go down as well as up.
+    // Follow/like are per-viewer toggles (client owns idempotency via
+    // localStorage) → no server dedup, and can go down as well as up.
     if (type === "follow" || type === "unfollow") {
       await bumpCounter(env, "followers", slug, type === "follow" ? 1 : -1);
+      return json({ ok: true }, env, 200);
+    }
+    if (type === "like" || type === "unlike") {
+      await bumpCounter(env, "likes", slug, type === "like" ? 1 : -1);
       return json({ ok: true }, env, 200);
     }
 
@@ -452,7 +494,7 @@ async function handleUpdate(request: Request, env: Env, slug: string): Promise<R
   if (!pf) return json({ error: "not_found" }, env, 404);
   if (!(await authOwner(request, env, slug))) return json({ error: "forbidden" }, env, 403);
 
-  let body: { name?: unknown; tagline?: unknown; members?: unknown };
+  let body: { name?: unknown; tagline?: unknown; members?: unknown; visibility?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -460,6 +502,9 @@ async function handleUpdate(request: Request, env: Env, slug: string): Promise<R
   }
   if (typeof body.name === "string" && body.name.trim()) pf.name = body.name.trim().slice(0, NAME_MAX);
   if (typeof body.tagline === "string") pf.tagline = body.tagline.trim().slice(0, TAGLINE_MAX);
+  if (body.visibility === "public" || body.visibility === "unlisted" || body.visibility === "private") {
+    pf.visibility = body.visibility;
+  }
   if (Array.isArray(body.members)) {
     const members: Member[] = [];
     const seen = new Set<string>();
@@ -512,7 +557,7 @@ async function handleAffinity(env: Env, agentId: string): Promise<Response> {
       if (Array.isArray(body.partners)) partners = body.partners;
     }
   } catch {
-    /* hire-x402 down → honest empty */
+    /* hire-x402 down → real empty */
   }
 
   const metas = await Promise.all(partners.map((p) => enrich(env, p.agentId)));
@@ -579,7 +624,7 @@ export default {
         }
         const slug = decodeURIComponent(rest);
         if (!slug) return json({ error: "not_found" }, env, 404);
-        if (method === "GET") return await handleGet(env, slug);
+        if (method === "GET") return await handleGet(request, env, slug);
         if (method === "PATCH") return await handleUpdate(request, env, slug);
         if (method === "DELETE") return await handleDelete(request, env, slug);
         return json({ error: "method_not_allowed" }, env, 405);

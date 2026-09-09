@@ -12,6 +12,7 @@ export default [
   route("manage", "routes/manage.tsx"),
   route("portfolios", "routes/portfolios.tsx"),
   route("portfolio/new", "routes/portfolio.new.tsx"),
+  route("portfolio/:slug/og", "routes/portfolio.og.tsx"),
   route("portfolio/:slug", "routes/portfolio.tsx"),
   route("create", "routes/create.tsx"),
   route("me", "routes/me.tsx"),

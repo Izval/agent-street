@@ -8,12 +8,13 @@ import { createAgentsClient, hireHref, agentHref, kebab, slugToId } from "../lib
 import { createTrendingClient } from "../lib/trending";
 import { createPortfoliosClient } from "../lib/portfolios-client";
 import { createHireClient } from "../lib/x402";
-import { fetchPairsWith } from "../lib/portfolios";
+import { fetchPairsWith, fetchCategoryPeers, fetchPopularPeers } from "../lib/portfolios";
 import { getProfileMeta } from "../lib/profile";
 import { AppShell } from "../components/AppShell";
 import { AgentCard } from "../components/AgentCard";
 import { CollectionCarousel } from "../components/CollectionCarousel";
 import { SaveButton } from "../components/SaveButton";
+import { AddToPortfolioButton } from "../components/AddToPortfolioButton";
 import { AgentAccessPanel } from "../components/AgentAccessPanel";
 import { AgentBackdrop } from "../components/profile/AgentBackdrop";
 import { ProfileIdentity } from "../components/profile/ProfileIdentity";
@@ -22,7 +23,6 @@ import { ProfileStats } from "../components/profile/ProfileStats";
 import { TransactionsPanel, TransactionsSkeleton } from "../components/profile/TransactionsPanel";
 import { createOnchainClient } from "../lib/onchain";
 import type { HireTx, TradesResponse } from "../lib/contracts";
-import { SpecialtyPanel } from "../components/profile/SpecialtyPanel";
 import {
   ReputationSection,
   EquitySection,
@@ -34,9 +34,15 @@ export function meta({ loaderData }: Route.MetaArgs) {
 }
 
 /**
- * The "latest transactions" feed (onchain swaps + settled x402 hires). Fetched
- * OFF the critical path and streamed (see the loader's `transactions` promise), so
- * the profile paints without waiting on the slower NodeReal transfers call.
+ * The "latest transactions" feed (onchain swaps + v3 liquidity mints/burns +
+ * settled x402 hires). Fetched OFF the critical path and streamed (see the loader's
+ * `transactions` promise), so the profile paints without waiting on the slower
+ * NodeReal transfers call.
+ *
+ * The agent can be active on BOTH BSC mainnet (56) and testnet (97) — the flagship
+ * rebalancer runs its v3 positions on testnet — so we query the indexer per chain
+ * and merge, tagging each row with its chain. Querying one chain (the old behavior)
+ * hid every tx on the other.
  */
 async function loadTransactions(agent: {
   id: string;
@@ -48,11 +54,31 @@ async function loadTransactions(agent: {
     baseUrl: env.ONCHAIN_INDEXER_URL,
     fetcher: env.ONCHAIN_INDEXER,
   });
-  const [trades, hires] = await Promise.all([
-    wallet ? onchain.trades(wallet) : Promise.resolve(null),
+  const [mainnet, testnet, hires] = await Promise.all([
+    wallet ? onchain.trades(wallet, 56) : Promise.resolve(null),
+    wallet ? onchain.trades(wallet, 97) : Promise.resolve(null),
     createHireClient({ payUrl: env.HIRE_X402_URL, fetcher: env.HIRE_X402 }).recentHires(agent.id),
   ]);
-  return { trades, hires: hires ?? [] };
+  return { trades: mergeTrades(mainnet, testnet), hires: hires ?? [] };
+}
+
+/** Merge per-chain trade feeds into one, newest first (capped at 50). null if both fail. */
+function mergeTrades(
+  a: TradesResponse | null,
+  b: TradesResponse | null,
+): TradesResponse | null {
+  if (!a && !b) return null;
+  const trades = [...(a?.trades ?? []), ...(b?.trades ?? [])]
+    .sort((x, y) => (x.ts < y.ts ? 1 : -1))
+    .slice(0, 50);
+  return {
+    address: a?.address ?? b?.address ?? "",
+    chainId: 56,
+    count: trades.length,
+    trades,
+    updatedAt: new Date().toISOString(),
+    source: "onchain",
+  };
 }
 
 export async function loader({ params, request }: Route.LoaderArgs) {
@@ -82,7 +108,11 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   // down; the profile still renders). Honesty: real feeds only (DESIGN.md §18).
   //  • usage    — first-party demand over time (views+hires) for the Usage tab.
   //  • affinity — REAL co-hires ("Frequently hired together").
-  //  • pairsWith— complementary agents by subcategory (a recommendation).
+  //  • pairsWith— recommendations that are never empty: complementary agents by
+  //    subcategory → peers from the same category → top agents in the corpus.
+  //    (Some agents have no subcategory/category — the classifier matched no
+  //    keyword — so the final tier guarantees the rail still shows real agents.)
+  const agentsClient = createAgentsClient({ baseUrl: env.PROXY_8004_URL, fetcher: env.PROXY_8004 });
   const [usage, affinity, pairsWith] = await Promise.all([
     createTrendingClient({ baseUrl: env.ANALYTICS_URL, fetcher: env.ANALYTICS }).series(
       detail.agent.id,
@@ -91,14 +121,17 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     createPortfoliosClient({ baseUrl: env.PORTFOLIOS_URL, fetcher: env.PORTFOLIOS }).affinity(
       detail.agent.id,
     ),
-    detail.agent.subcategory
-      ? fetchPairsWith(
-          createAgentsClient({ baseUrl: env.PROXY_8004_URL, fetcher: env.PROXY_8004 }),
-          detail.agent.subcategory,
-          detail.agent.id,
-          8,
-        )
-      : Promise.resolve([]),
+    (async () => {
+      if (detail.agent.subcategory) {
+        const pairs = await fetchPairsWith(agentsClient, detail.agent.subcategory, detail.agent.id, 8);
+        if (pairs.length > 0) return pairs;
+      }
+      if (detail.category) {
+        const peers = await fetchCategoryPeers(agentsClient, detail.category, detail.agent.id, 8);
+        if (peers.length > 0) return peers;
+      }
+      return fetchPopularPeers(agentsClient, detail.agent.id, 8);
+    })(),
   ]);
 
   return {
@@ -178,7 +211,17 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
               {/* Identity photo + description = ONE image-driven surface (no gap,
                   no seam): a single glass panel where the sharp portrait on the
                   left melts into its own blur under the description on the right. */}
-              <div className="glass-frost relative grid grid-cols-1 overflow-hidden rounded-br-xl border-l-0 border-t-0 lg:grid-cols-[minmax(380px,440px)_minmax(0,1fr)]">
+              <div
+                className="glass-frost relative grid grid-cols-1 overflow-hidden rounded-br-xl lg:grid-cols-[minmax(380px,440px)_minmax(0,1fr)]"
+                style={{
+                  // Bleed flush under the nav: drop the top + left borders AND the
+                  // glass-frost inset top highlight (that faint 1px line) so the
+                  // panel has no visible top edge. Inline wins over the CSS layer.
+                  borderTop: "none",
+                  borderLeft: "none",
+                  boxShadow: "var(--elev-hero)",
+                }}
+              >
                 <ProfileIdentity detail={detail} meta={meta} />
                 <ProfileAbout detail={detail} meta={meta} />
               </div>
@@ -198,25 +241,12 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           </div>
         </div>
 
-        {/* ───────── Full profile (existing panels, kept) ─────────
-            The prior CV body, moved below the dashboard so it can be folded
-            into the hero over time. Some panels overlap the hero for now. */}
+        {/* ───────── Profile body ─────────
+            The CV body below the hero. The "Full profile" label and the
+            per-category specialty block (SpecialtyPanel) were removed: the
+            specialty block duplicated the hero description, and the reputation
+            panel now opens the body directly. */}
         <section className="mt-10">
-          <div className="mb-4 flex items-center gap-2.5">
-            <span aria-hidden className="h-4 w-1 rounded-[999px] bg-border" />
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-text-3">
-              Full profile
-            </h2>
-          </div>
-
-          {/* Signature specialty block, full width. SpecialtyPanel renders a
-              dedicated, per-category block for every template (Rebalancing gets
-              ClmmSpecialty; Grid/Yield/Health/RWA/NFT/Services each get their own
-              real, qualitative panel) — Agent Diversity is judged on equal depth. */}
-          <div className="mb-4 lg:mb-6">
-            <SpecialtyPanel detail={detail} meta={meta} />
-          </div>
-
           <div className="flex min-w-0 flex-col gap-4 lg:gap-6">
             {/* About leads the hero (ProfileAbout); the body opens on reputation. */}
             <ReputationSection detail={detail} />
@@ -293,6 +323,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
       {/* Mobile: pinned bottom action bar so Hire is always reachable. */}
       <div className="fixed inset-x-0 bottom-0 z-40 flex items-center gap-2 border-t border-border bg-bg/95 p-3 backdrop-blur lg:hidden">
         <SaveButton agent={snapshot} variant="icon" className="h-11 w-11 shrink-0" />
+        <AddToPortfolioButton agent={snapshot} className="h-11 w-11 shrink-0" />
         <Link
           to={hireHref(agent.id, agent.chainId)}
           className="flex flex-1 items-center justify-center rounded-[8px] bg-brand px-6 py-3 text-sm font-semibold text-bg transition-colors hover:bg-brand-bright"

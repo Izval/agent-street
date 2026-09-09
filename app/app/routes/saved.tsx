@@ -2,11 +2,14 @@ import { Link } from "react-router";
 
 import type { Route } from "./+types/saved";
 import { useSavedAgents, type SavedAgent } from "../lib/saved";
+import { useSavedPortfolios, type SavedPortfolio } from "../lib/savedPortfolios";
 import { agentHref } from "../lib/agents";
+import { coverStyle } from "../lib/cover";
 import { AppShell } from "../components/AppShell";
 import { Avatar } from "../components/Avatar";
 import { Card } from "../components/Card";
 import { SaveButton } from "../components/SaveButton";
+import { SavePortfolioButton } from "../components/SavePortfolioButton";
 import { ScoreMeter } from "../components/ScoreMeter";
 
 export function meta(_: Route.MetaArgs) {
@@ -50,8 +53,33 @@ function SavedCard({ a }: { a: SavedAgent }) {
   );
 }
 
+function SavedPortfolioRow({ p }: { p: SavedPortfolio }) {
+  return (
+    <Card className="relative flex items-center gap-3 p-4 transition-colors hover:border-brand">
+      <Link
+        to={`/portfolio/${encodeURIComponent(p.slug)}`}
+        className="flex min-w-0 flex-1 items-center gap-3"
+      >
+        <span
+          aria-hidden
+          className="h-11 w-11 shrink-0 rounded-lg"
+          style={coverStyle(p.coverKey, "var(--brand)")}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-semibold text-text">{p.name}</div>
+          <div className="tnum mt-0.5 text-[11px] text-text-3">
+            {p.memberCount} agents{p.creatorLabel ? ` · by ${p.creatorLabel}` : ""}
+          </div>
+        </div>
+      </Link>
+      <SavePortfolioButton portfolio={p} className="shrink-0" />
+    </Card>
+  );
+}
+
 export default function Saved() {
   const saved = useSavedAgents();
+  const savedPortfolios = useSavedPortfolios();
 
   return (
     <AppShell>
@@ -90,6 +118,23 @@ export default function Saved() {
             {saved.map((a) => (
               <SavedCard key={a.id} a={a} />
             ))}
+          </div>
+        )}
+
+        {/* Saved portfolios (collections), also device-local. */}
+        {savedPortfolios.length > 0 && (
+          <div className="mt-10">
+            <h2 className="text-lg font-bold">
+              Saved portfolios{" "}
+              <span className="tnum text-sm font-normal text-text-3">
+                ({savedPortfolios.length})
+              </span>
+            </h2>
+            <div className="mt-4 flex flex-col gap-2">
+              {savedPortfolios.map((p) => (
+                <SavedPortfolioRow key={p.slug} p={p} />
+              ))}
+            </div>
           </div>
         )}
       </div>

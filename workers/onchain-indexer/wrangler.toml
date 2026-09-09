@@ -21,6 +21,9 @@ ALLOWED_ORIGIN = "*"
 # RPC público BSC mainnet (chainId 56). Keyless. Alternativas si rate-limit:
 #   https://bsc-dataseed1.defibit.io  ·  https://bsc.publicnode.com
 BSC_RPC_URL = "https://bsc-dataseed.bnbchain.org"
+# RPC público BSC testnet (chainId 97). Keyless. El agente insignia opera en ambas
+# cadenas; /v1/trades?chain=97 resuelve contra testnet (feed via NodeReal testnet).
+BSC_TESTNET_RPC_URL = "https://data-seed-prebsc-1-s1.bnbchain.org:8545"
 
 # Secret (no en el repo):  wrangler secret put NODEREAL_API_KEY
 # /v1/trades usa NodeReal/MegaNode nr_getAssetTransfers (BSCTrace). Etherscan V2 NO

@@ -62,9 +62,10 @@ export default function Portfolios({ loaderData }: Route.ComponentProps) {
           Marketplace
         </p>
         <h1 className="mt-1 text-3xl font-bold tracking-tight">Agent portfolios</h1>
-        <p className="mt-2 max-w-[60ch] text-sm text-text-2">
-          Prefab sets of agents that work together — the "frequently hired together" of the
-          marketplace. Hire a whole strategy in one flow, or build and share your own.
+        <p className="mt-2 max-w-[64ch] text-sm text-text-2">
+          Sets of agents that work together — the "frequently hired together" of the marketplace.
+          Discover ready-made starters, or <span className="text-text">build and share your own
+          collection</span> for others to copy, hire and heart.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <Link
@@ -79,37 +80,64 @@ export default function Portfolios({ loaderData }: Route.ComponentProps) {
         </div>
       </section>
 
-      {/* Curated grid. */}
-      {portfolios.length > 0 ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {portfolios.map((p) => (
-            <PortfolioCard key={p.slug} portfolio={p} />
-          ))}
+      {/* Starter (curated) grid. */}
+      <section>
+        <div className="mb-4 flex items-center gap-2.5">
+          <span aria-hidden className="h-4 w-1 rounded-[999px] bg-brand" />
+          <h2 className="text-lg font-semibold">Starter portfolios</h2>
         </div>
-      ) : (
-        <EmptyState
-          className="border border-border bg-surface"
-          icon="◱"
-          title="No portfolios to show yet"
-          hint="Curated portfolios resolve from live 8004scan agents. When the proxy is unreachable there are no invented placeholders — check back shortly."
-        />
-      )}
-
-      {/* Community portfolios (user-made, from the portfolios worker). Hidden
-          when the worker is unavailable or nobody has published yet. */}
-      {community.length > 0 && (
-        <section className="mt-12">
-          <div className="flex items-center gap-2.5">
-            <span aria-hidden className="h-4 w-1 rounded-[999px] bg-brand" />
-            <h2 className="text-lg font-semibold">Community portfolios</h2>
-          </div>
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {community.map((p) => (
-              <CommunityPortfolioCard key={p.slug} portfolio={p} />
+        {portfolios.length > 0 ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {portfolios.map((p) => (
+              <PortfolioCard key={p.slug} portfolio={p} />
             ))}
           </div>
-        </section>
-      )}
+        ) : (
+          <EmptyState
+            className="border border-border bg-surface"
+            icon="◱"
+            title="No portfolios to show yet"
+            hint="Curated portfolios resolve from live 8004scan agents. When the proxy is unreachable there are no invented placeholders — check back shortly."
+          />
+        )}
+      </section>
+
+      {/* Community portfolios — the showcase for user-made sets. Always shown so
+          the page doubles as the place to build & share; a Build tile leads the
+          grid and an inviting empty state stands in until people publish. */}
+      <section className="mt-12">
+        <div className="flex items-center gap-2.5">
+          <span aria-hidden className="h-4 w-1 rounded-[999px] bg-brand" />
+          <h2 className="text-lg font-semibold">Community portfolios</h2>
+        </div>
+        <p className="mt-1.5 max-w-[62ch] text-sm text-text-2">
+          Sets published by people on Agent-Street — public, copyable, and hearted by the
+          community. Bundle the agents you rate and share your own.
+        </p>
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Always-present "create" tile (Pinterest-style board starter). */}
+          <Link
+            to="/portfolio/new"
+            className="group flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/80 bg-surface/40 p-6 text-center transition-colors hover:border-brand hover:bg-surface"
+          >
+            <span className="grid h-14 w-14 place-items-center rounded-full border border-border text-3xl leading-none text-text-2 transition-colors group-hover:border-brand group-hover:text-brand">
+              ＋
+            </span>
+            <span className="text-sm font-semibold text-text">Build a portfolio</span>
+            <span className="max-w-[28ch] text-xs text-text-3">
+              Bundle agents into a set others can copy, hire &amp; heart.
+            </span>
+          </Link>
+          {community.map((p) => (
+            <CommunityPortfolioCard key={p.slug} portfolio={p} />
+          ))}
+        </div>
+        {community.length === 0 && (
+          <p className="mt-3 text-xs text-text-3">
+            No community portfolios yet — be the first to publish one.
+          </p>
+        )}
+      </section>
 
       {/* Leaderboard (most copied) — first-party gamification counters. Kept
           mounted when a non-default window is selected so the tabs don't vanish. */}

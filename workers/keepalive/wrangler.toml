@@ -19,4 +19,4 @@ crons = ["*/5 * * * *"]
 #   "https://agent-street-registrar.onrender.com/health,https://ivl-rebalancer.onrender.com/ping"
 # Se puede actualizar SIN redeploy desde el dashboard (Settings → Variables) o:
 #   wrangler deploy   (tras editar aquí)
-KEEPALIVE_URLS = "https://ivl.onrender.com/ping"
+KEEPALIVE_URLS = "https://ivl.onrender.com/ping,https://ivl-mainnet.onrender.com/ping"

@@ -21,16 +21,18 @@ import { PORTFOLIO_RECIPES, resolvePortfolios } from "../lib/portfolios";
 import { TrendingRail } from "../components/TrendingRail";
 import { AgentCard } from "../components/AgentCard";
 import { PromoBanner } from "../components/PromoBanner";
+import { FeaturedAgentHero } from "../components/FeaturedAgentHero";
+import { scheduledFeaturedId, meritFeaturedId } from "../lib/featuredAgent";
 import { FeaturedRail, type FeatureItem } from "../components/FeaturedRail";
 import { LaunchTicker } from "../components/LaunchTicker";
 
 const PER_ROW = 8;
 
 /**
- * Row order for the home listings: the 4 mandatory subcategories first (equal
- * depth, always shown), then every other subcategory in taxonomy order. At
- * render time the non-mandatory rows are filtered to those that actually have
- * agents — so the home shows ALL categories that have agents inside, no empties.
+ * Which subcategory rows to fetch: the 4 mandatory ones plus every other
+ * subcategory in taxonomy order. The loader then builds `rowOrder` — mandatory
+ * first (equal depth, always shown), the rest sorted by how many agents they
+ * list and filtered to the non-empty ones — which drives the actual render.
  */
 const ROW_ORDER: Subcategory[] = [
   ...REQUIRED_SUBCATEGORIES,
@@ -122,7 +124,14 @@ export async function loader() {
   const agents = createAgentsClient({ baseUrl: env.PROXY_8004_URL, fetcher: env.PROXY_8004 });
   const trendingClient = createTrendingClient({ baseUrl: env.ANALYTICS_URL, fetcher: env.ANALYTICS });
 
-  const [total, viewsDemand, hiresDemand, pool, portfolios, ...pages] =
+  // The home hero features ONE agent (lib/featuredAgent). An editorial schedule
+  // window, when active, pins a specific agent id; that agent may sit outside the
+  // top-score pool, so fetch it here IN PARALLEL (pool-free) rather than adding a
+  // sequential round-trip. When no window is active this is null and the merit
+  // rotation below picks from the pool instead.
+  const scheduledId = scheduledFeaturedId();
+
+  const [total, viewsDemand, hiresDemand, pool, portfolios, scheduledAgent, ...pages] =
     await Promise.all([
       agents.list({ limit: 1 }).then((p) => p.pagination.total).catch(() => null),
       trendingClient.trending({ metric: "views", window: "24h", limit: 8 }),
@@ -134,13 +143,34 @@ export async function loader() {
       resolvePortfolios(PORTFOLIO_RECIPES.slice(0, 6), agents).then((ps) =>
         ps.filter((p) => p.agents.length > 0),
       ),
+      scheduledId ? agents.get(scheduledId, 56) : Promise.resolve(null),
       ...ROW_ORDER.map((c) => agents.list({ subcategory: c, limit: PER_ROW })),
     ]);
 
+  // Resolve the featured agent: an active editorial pin wins; otherwise rotate
+  // weekly through the top-of-pool by merit (falling back to the top agent).
+  const featured =
+    scheduledAgent ??
+    pool.agents.find((a) => a.id === meritFeaturedId(pool.agents.map((a) => a.id))) ??
+    pool.agents[0] ??
+    null;
+
   const rows = {} as Record<Subcategory, Agent[]>;
+  const counts = {} as Record<Subcategory, number>;
   ROW_ORDER.forEach((c, i) => {
     rows[c] = pages[i].agents;
+    counts[c] = pages[i].pagination.total;
   });
+
+  // Home listing order: the 4 mandatory subcategories first (equal depth, fixed
+  // order, always shown), then every other subcategory that actually has agents,
+  // sorted by how many are listed in it — most-populated first.
+  const rowOrder: Subcategory[] = [
+    ...REQUIRED_SUBCATEGORIES,
+    ...SUBCATEGORIES.filter(
+      (c) => !REQUIRED_SUBCATEGORIES.includes(c) && (rows[c]?.length ?? 0) > 0,
+    ).sort((a, b) => (counts[b] ?? 0) - (counts[a] ?? 0)),
+  ];
 
   // "New launches" ticker (top of the pool as a proxy for what's new).
   const latest = pool.agents.slice(0, 15).map((a) => ({
@@ -165,7 +195,7 @@ export async function loader() {
       : reputationTrending(pool.agents, { window: "24h", limit: 8, basis: "stars" }),
   };
 
-  return { rows, total, trendingTabs, latest, portfolios };
+  return { rows, rowOrder, total, trendingTabs, latest, portfolios, featuredAgent: featured };
 }
 
 function accentFor(c: Subcategory): string | undefined {
@@ -208,7 +238,7 @@ function HeroPanel({ className = "" }: { className?: string }) {
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { rows, total, trendingTabs, latest, portfolios } = loaderData;
+  const { rows, rowOrder, total, trendingTabs, latest, portfolios, featuredAgent } = loaderData;
 
   // Featured (placeholder "for now"): Steam-style banners.
   const featured: FeatureItem[] = [
@@ -298,16 +328,23 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         </div>
       </section>
 
-      {/* Featured banner + Steam-style featured row. */}
+      {/* Featured agent of the week + Steam-style featured row. The hero features
+          ONE agent (editorial schedule → weekly merit rotation, see the loader),
+          painted in that agent's own colours. Falls back to the category banner
+          only if no agent resolves (proxy down). */}
       <div className="mt-16">
-        <PromoBanner
-          to="/category/liquidity"
-          title="Liquidity agents that manage your capital onchain"
-          subtitle="Concentrated liquidity, rebalancing and LP management — hire ERC-8004 agents with reputation and portfolio verified on the chain."
-          pill="Featured"
-          accent="var(--accent-liquidity)"
-          cover="promo-liquidity"
-        />
+        {featuredAgent ? (
+          <FeaturedAgentHero agent={featuredAgent} eyebrow="Featured agent · this week" />
+        ) : (
+          <PromoBanner
+            to="/category/liquidity"
+            title="Liquidity agents that manage your capital onchain"
+            subtitle="Concentrated liquidity, rebalancing and LP management — hire ERC-8004 agents with reputation and portfolio verified on the chain."
+            pill="Featured"
+            accent="var(--accent-liquidity)"
+            cover="promo-liquidity"
+          />
+        )}
       </div>
 
       <div className="mt-8">
@@ -336,10 +373,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       {/* Listings + trending rail (below the hero) */}
       <div className="mt-10 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0">
-          {ROW_ORDER.filter(
-            (c) =>
-              REQUIRED_SUBCATEGORIES.includes(c) || (rows[c]?.length ?? 0) > 0,
-          ).map((c) => (
+          {rowOrder.map((c) => (
             <div className="mb-8" key={c}>
               <CollectionCarousel
                 title={subcategoryLabel(c)}

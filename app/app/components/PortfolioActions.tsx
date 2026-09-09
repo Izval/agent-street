@@ -1,28 +1,41 @@
 /**
  * PortfolioActions — client island for a portfolio detail page.
  *
- *   - Save all: adds every member to the local saved store (lib/saved.ts).
- *   - Share:    copies the portfolio URL (Web Share / clipboard).
+ *   - Heart:    a public like counter — a per-viewer toggle (localStorage owns
+ *               idempotency), the count is shown to everyone.
+ *   - Save:     bookmark this portfolio for later (lib/savedPortfolios.ts).
+ *   - Share X:  open a prefilled X/Twitter intent (the detail page carries a
+ *               visual OG card so the tweet renders the roster).
+ *   - Save all: adds every member to the local saved-agents store (lib/saved.ts).
  *   - Copy:     clones the set into the builder draft (agentic copy-trading) and
  *               records a real `copy` event.
  *   - Hire all: guided multi-hire — records the `hire_all` intent and walks each
  *               member through the existing per-agent client-pays flow. Every
  *               payment is a real onchain tx; nothing is batched or faked.
+ *   - Owner:    visibility control (Public/Unlisted/Private) + delete — gated by
+ *               the device-held owner secret.
  *
- * Honesty: counters are first-party (we count them); no onchain state is
+ * Data rule: counters are first-party (we count them); no onchain state is
  * fabricated. Events degrade silently if the portfolios worker is unavailable.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router";
-import type { ResolvedPortfolio } from "../lib/portfolios";
+import type { ResolvedPortfolio, PortfolioVisibility } from "../lib/portfolios";
 import { hireHref } from "../lib/agents";
 import { useSavedAgents, toggleSaved, type SavedAgent } from "../lib/saved";
 import { createPortfoliosClient } from "../lib/portfolios-client";
+import { SavePortfolioButton } from "./SavePortfolioButton";
 
 const DRAFT_KEY = "agent-street:portfolio:draft:v1";
 const SECRET_KEY = (slug: string) => `agent-street:portfolio:secret:${slug}`;
-const FOLLOW_KEY = (slug: string) => `agent-street:portfolio:follow:${slug}`;
+const LIKE_KEY = (slug: string) => `agent-street:portfolio:like:${slug}`;
+
+const VIS_OPTIONS: Array<{ value: PortfolioVisibility; label: string; hint: string }> = [
+  { value: "public", label: "Public", hint: "Listed everywhere and ranked." },
+  { value: "unlisted", label: "Unlisted", hint: "Only reachable with the link." },
+  { value: "private", label: "Private", hint: "Only you, on this device." },
+];
 
 function toSnapshot(a: ResolvedPortfolio["agents"][number]): SavedAgent {
   return {
@@ -51,37 +64,70 @@ export function PortfolioActions({
   const [ownerSecret, setOwnerSecret] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [following, setFollowing] = useState(false);
-  const [followers, setFollowers] = useState<number>(portfolio.stats?.followers ?? 0);
+  const [liked, setLiked] = useState(false);
+  const [likes, setLikes] = useState<number>(portfolio.stats?.likes ?? 0);
+  const [visibility, setVisibility] = useState<PortfolioVisibility>(
+    portfolio.visibility ?? "public",
+  );
+  const [savingVis, setSavingVis] = useState(false);
 
-  // Owner control + follow state: read this browser's local flags on mount.
+  // Owner control + like state: read this browser's local flags on mount.
   useEffect(() => {
     if (portfolio.source !== "user") return;
     try {
       setOwnerSecret(window.localStorage.getItem(SECRET_KEY(portfolio.slug)));
-      setFollowing(window.localStorage.getItem(FOLLOW_KEY(portfolio.slug)) === "1");
+      setLiked(window.localStorage.getItem(LIKE_KEY(portfolio.slug)) === "1");
     } catch {
       setOwnerSecret(null);
     }
   }, [portfolio.source, portfolio.slug]);
 
-  function toggleFollow() {
-    const next = !following;
-    setFollowing(next);
-    setFollowers((n) => Math.max(0, n + (next ? 1 : -1)));
+  function toggleLike() {
+    const next = !liked;
+    setLiked(next);
+    setLikes((n) => Math.max(0, n + (next ? 1 : -1)));
     try {
-      if (next) window.localStorage.setItem(FOLLOW_KEY(portfolio.slug), "1");
-      else window.localStorage.removeItem(FOLLOW_KEY(portfolio.slug));
+      if (next) window.localStorage.setItem(LIKE_KEY(portfolio.slug), "1");
+      else window.localStorage.removeItem(LIKE_KEY(portfolio.slug));
     } catch {
       /* storage disabled — the event still records intent */
     }
-    void client.event(portfolio.slug, next ? "follow" : "unfollow");
+    void client.event(portfolio.slug, next ? "like" : "unlike");
+  }
+
+  async function changeVisibility(next: PortfolioVisibility) {
+    if (!ownerSecret || next === visibility) return;
+    const prev = visibility;
+    setVisibility(next);
+    setSavingVis(true);
+    const ok = await client.update(portfolio.slug, ownerSecret, { visibility: next });
+    setSavingVis(false);
+    if (!ok) setVisibility(prev); // revert on failure
+  }
+
+  function shareOnX() {
+    const url =
+      typeof window !== "undefined" ? window.location.href : `/portfolio/${portfolio.slug}`;
+    const text = `${portfolio.name} — a portfolio of ${portfolio.agents.length} ERC-8004 agents on BNB Chain`;
+    const intent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+    if (typeof window !== "undefined") window.open(intent, "_blank", "noopener,noreferrer");
   }
 
   const savedIds = useMemo(() => new Set(saved.map((s) => s.id)), [saved]);
   const unsavedCount = portfolio.agents.filter((a) => !savedIds.has(a.id)).length;
   const allSaved = portfolio.agents.length > 0 && unsavedCount === 0;
   const client = useMemo(() => createPortfoliosClient({ baseUrl: portfoliosUrl }), [portfoliosUrl]);
+
+  const creatorLabel = portfolio.creator?.address
+    ? (portfolio.creator.label ?? `${portfolio.creator.address.slice(0, 6)}…`)
+    : null;
+  const bookmarkSnapshot = {
+    slug: portfolio.slug,
+    name: portfolio.name,
+    creatorLabel,
+    memberCount: portfolio.agents.length,
+    coverKey: portfolio.coverKey,
+  };
 
   function saveAll() {
     for (const a of portfolio.agents) {
@@ -162,6 +208,31 @@ export function PortfolioActions({
         >
           Hire all · {portfolio.agents.length}
         </button>
+
+        {/* Heart — public like counter (user portfolios). Count always shown. */}
+        {portfolio.source === "user" && (
+          <button
+            type="button"
+            onClick={toggleLike}
+            aria-pressed={liked}
+            className={
+              "inline-flex min-h-[40px] items-center gap-1.5 rounded-[999px] border px-4 text-sm font-semibold transition-colors " +
+              (liked
+                ? "border-brand/50 bg-brand/[0.06] text-text"
+                : "border-border text-text-2 hover:border-brand hover:text-text")
+            }
+          >
+            <span aria-hidden className={liked ? "text-brand" : ""}>
+              {liked ? "♥" : "♡"}
+            </span>
+            {liked ? "Liked" : "Like"}
+            <span className="tnum text-text-3">· {likes}</span>
+          </button>
+        )}
+
+        {/* Bookmark this portfolio (private, per-device). */}
+        <SavePortfolioButton portfolio={bookmarkSnapshot} variant="labeled" />
+
         <button
           type="button"
           onClick={copyToBuilder}
@@ -189,24 +260,17 @@ export function PortfolioActions({
           {copied ? "Link copied" : "Share"}
         </button>
 
-        {/* Follow — user portfolios only (first-party interest signal). */}
-        {portfolio.source === "user" && (
-          <button
-            type="button"
-            onClick={toggleFollow}
-            aria-pressed={following}
-            className={
-              "inline-flex min-h-[40px] items-center gap-1.5 rounded-[999px] border px-4 text-sm font-semibold transition-colors " +
-              (following
-                ? "border-brand/50 bg-brand/[0.06] text-text"
-                : "border-border text-text-2 hover:border-brand hover:text-text")
-            }
-          >
-            <span aria-hidden>{following ? "★" : "☆"}</span>
-            {following ? "Following" : "Follow"}
-            {followers > 0 && <span className="tnum text-text-3">· {followers}</span>}
-          </button>
-        )}
+        {/* Share on X — the detail page carries a visual OG card. */}
+        <button
+          type="button"
+          onClick={shareOnX}
+          className="inline-flex min-h-[40px] items-center gap-1.5 rounded-[999px] border border-border px-4 text-sm font-semibold text-text-2 transition-colors hover:border-brand hover:text-text"
+        >
+          <span aria-hidden className="font-bold">
+            𝕏
+          </span>
+          Share on X
+        </button>
 
         {/* Owner-only: delete (this browser holds the publish secret). */}
         {ownerSecret &&
@@ -239,6 +303,37 @@ export function PortfolioActions({
             </button>
           ))}
       </div>
+
+      {/* Owner-only: visibility control (device-held secret). */}
+      {ownerSecret && (
+        <div className="mt-4 rounded-lg border border-border bg-surface p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-text">Visibility</h3>
+            {savingVis && <span className="text-xs text-text-3">Saving…</span>}
+          </div>
+          <div className="mt-3 inline-flex rounded-[999px] border border-border p-0.5">
+            {VIS_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => changeVisibility(o.value)}
+                aria-pressed={visibility === o.value}
+                className={
+                  "min-h-[32px] rounded-[999px] px-3 text-xs font-semibold transition-colors " +
+                  (visibility === o.value
+                    ? "bg-brand text-bg"
+                    : "text-text-2 hover:text-text")
+                }
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-text-3">
+            {VIS_OPTIONS.find((o) => o.value === visibility)?.hint}
+          </p>
+        </div>
+      )}
 
       {/* Guided multi-hire: each agent is paid separately, a real tx per hire. */}
       {hireOpen && (

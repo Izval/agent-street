@@ -81,9 +81,15 @@ export function TrendingRow({
             </span>
           )}
         </span>
+        {/* Reputation rows share one basis, so the label ("on-chain score") is
+            shown once, on the top row — repeating it down the list is noise. The
+            line is still rendered (as a blank) on the rest so every row keeps the
+            same two-line height and the list stays aligned. */}
         <span className="tnum text-[11px] text-text-3">
           {reputation
-            ? (basisLabel ?? "on-chain score")
+            ? rank === 1
+              ? (basisLabel ?? "on-chain score")
+              : " "
             : `${fmtCount(row.count)} ${metricNoun}`}
         </span>
       </span>

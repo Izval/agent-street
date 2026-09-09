@@ -1,12 +1,20 @@
 import { env } from "cloudflare:workers";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useFetcher } from "react-router";
+import { Link, useFetcher, useSearchParams } from "react-router";
 import { useAccount } from "wagmi";
 
 import type { Route } from "./+types/portfolio.new";
-import { createPortfoliosClient } from "../lib/portfolios-client";
+import { createPortfoliosClient, type PortfolioVisibility } from "../lib/portfolios-client";
 import { createAgentsClient, type Agent } from "../lib/agents";
 import { useSavedAgents, type SavedAgent } from "../lib/saved";
+import { loadMyAgents, type HireRecord } from "../lib/me";
+import {
+  useDraftMembers,
+  toggleDraft,
+  readDraftMeta,
+  setDraftMeta,
+  clearDraft,
+} from "../lib/portfolioDraft";
 import { AppShell } from "../components/AppShell";
 import { Card } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
@@ -16,12 +24,21 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Build a portfolio — Agent-Street" }];
 }
 
-export function loader() {
+export async function loader({ request }: Route.LoaderArgs) {
   // The proxy base for client-side agent search (8004-proxy is CORS-enabled).
-  return { proxyUrl: env.PROXY_8004_URL };
+  // When a wallet is connected the client syncs it into ?address so we can fetch
+  // that wallet's hired agents as a second build-from pool (real, server-side).
+  const url = new URL(request.url);
+  const address = url.searchParams.get("address");
+  const hired: HireRecord[] = address
+    ? await loadMyAgents({ hireUrl: env.HIRE_X402_URL, hireFetcher: env.HIRE_X402 }, address)
+        .then((m) => m.hires)
+        .catch(() => [])
+    : [];
+  return { proxyUrl: env.PROXY_8004_URL, hired };
 }
 
-/** Agent (from the proxy) → the light snapshot the builder + saved store use. */
+/** Agent (from the proxy) → the light snapshot the builder + draft store use. */
 function agentToSnapshot(a: Agent): SavedAgent {
   return {
     id: a.id,
@@ -35,11 +52,28 @@ function agentToSnapshot(a: Agent): SavedAgent {
   };
 }
 
+/** A hired agent (hire-x402 record) → the same light snapshot shape. */
+function hireToSnapshot(h: HireRecord): SavedAgent {
+  return {
+    id: h.agentId,
+    name: h.agentName ?? h.agentId,
+    subcategory: null,
+    subcategoryLabel: null,
+    score: 0,
+    imageUrl: undefined,
+    source: "8004scan",
+    savedAt: Date.now(),
+  };
+}
+
 export async function action({ request }: Route.ActionArgs) {
   const form = await request.formData();
   const name = String(form.get("name") ?? "").trim();
   const tagline = String(form.get("tagline") ?? "").trim();
   const creator = String(form.get("creator") ?? "").trim() || null;
+  const visRaw = String(form.get("visibility") ?? "public");
+  const visibility: PortfolioVisibility =
+    visRaw === "unlisted" || visRaw === "private" ? visRaw : "public";
   let members: Array<{ agentId: string }> = [];
   try {
     const raw = JSON.parse(String(form.get("members") ?? "[]"));
@@ -66,6 +100,7 @@ export async function action({ request }: Route.ActionArgs) {
     tagline,
     members,
     creator: creator ? { address: creator } : null,
+    visibility,
   });
 
   if (!result) {
@@ -79,42 +114,28 @@ export async function action({ request }: Route.ActionArgs) {
   return { error: null as string | null, result };
 }
 
-const DRAFT_KEY = "agent-street:portfolio:draft:v1";
 const SECRET_KEY = (slug: string) => `agent-street:portfolio:secret:${slug}`;
 
-interface Draft {
-  name: string;
-  tagline: string;
-  members: SavedAgent[];
-}
-
-function readDraft(): Draft | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(DRAFT_KEY);
-    return raw ? (JSON.parse(raw) as Draft) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeDraft(draft: Draft): void {
-  try {
-    window.localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-  } catch {
-    /* storage disabled — keep in-memory only */
-  }
-}
+const VIS_OPTIONS: Array<{ value: PortfolioVisibility; label: string; hint: string }> = [
+  { value: "public", label: "Public", hint: "Listed everywhere and ranked." },
+  { value: "unlisted", label: "Unlisted", hint: "Only reachable with the link." },
+  { value: "private", label: "Private", hint: "Only you, on this device." },
+];
 
 export default function PortfolioBuilder({ loaderData }: Route.ComponentProps) {
-  const { proxyUrl } = loaderData;
+  const { proxyUrl, hired } = loaderData;
   const saved = useSavedAgents();
+  // Members live in the shared draft store — the SAME set the agent-page "+"
+  // fills, so anything you added arrives here pre-loaded and updates live.
+  const chosen = useDraftMembers();
   const { address } = useAccount();
+  const [params, setParams] = useSearchParams();
   const fetcher = useFetcher<typeof action>();
 
   const [name, setName] = useState("");
   const [tagline, setTagline] = useState("");
-  const [selected, setSelected] = useState<Record<string, SavedAgent>>({});
+  const [visibility, setVisibility] = useState<PortfolioVisibility>("public");
+  const hydrated = useRef(false);
 
   // Marketplace search (client-side, debounced against the CORS-enabled proxy).
   const [query, setQuery] = useState("");
@@ -144,29 +165,55 @@ export default function PortfolioBuilder({ loaderData }: Route.ComponentProps) {
     };
   }, [query, proxyUrl]);
 
-  // Hydrate from a local draft (also how Phase C "Copy" seeds a clone).
+  // Hydrate name/tagline once from the draft (members come from the store).
   useEffect(() => {
-    const draft = readDraft();
-    if (!draft) return;
-    setName(draft.name ?? "");
-    setTagline(draft.tagline ?? "");
-    setSelected(Object.fromEntries((draft.members ?? []).map((m) => [m.id, m])));
+    const meta = readDraftMeta();
+    setName(meta.name);
+    setTagline(meta.tagline);
+    hydrated.current = true;
   }, []);
 
-  // Persist the draft as it changes.
+  // Persist name/tagline as they change (members persist via the draft store).
   useEffect(() => {
-    writeDraft({ name, tagline, members: Object.values(selected) });
-  }, [name, tagline, selected]);
+    if (!hydrated.current) return;
+    setDraftMeta(name, tagline);
+  }, [name, tagline]);
 
-  // Union of saved agents and any draft members not currently saved.
+  // Sync the connected wallet into ?address so the loader can fetch its hires.
+  useEffect(() => {
+    if (address && params.get("address") !== address) {
+      setParams(
+        (p) => {
+          p.set("address", address);
+          return p;
+        },
+        { replace: true },
+      );
+    }
+  }, [address, params, setParams]);
+
+  const hiredPool = useMemo(() => {
+    const seen = new Set<string>();
+    const out: SavedAgent[] = [];
+    for (const h of hired) {
+      if (!h.agentId || seen.has(h.agentId)) continue;
+      seen.add(h.agentId);
+      out.push(hireToSnapshot(h));
+    }
+    return out;
+  }, [hired]);
+
+  const selectedIds = useMemo(() => new Set(chosen.map((a) => a.id)), [chosen]);
+
+  // Build-from pool: saved + hired + anything already staged, deduped.
   const pool = useMemo(() => {
     const map = new Map<string, SavedAgent>();
     for (const a of saved) map.set(a.id, a);
-    for (const a of Object.values(selected)) if (!map.has(a.id)) map.set(a.id, a);
+    for (const a of hiredPool) if (!map.has(a.id)) map.set(a.id, a);
+    for (const a of chosen) if (!map.has(a.id)) map.set(a.id, a);
     return [...map.values()];
-  }, [saved, selected]);
+  }, [saved, hiredPool, chosen]);
 
-  const chosen = Object.values(selected);
   const querying = query.trim().length >= 2;
   const displayed = querying ? results : pool;
   const result = fetcher.data?.result ?? null;
@@ -178,19 +225,14 @@ export default function PortfolioBuilder({ loaderData }: Route.ComponentProps) {
     if (!result) return;
     try {
       window.localStorage.setItem(SECRET_KEY(result.slug), result.ownerSecret);
-      window.localStorage.removeItem(DRAFT_KEY);
     } catch {
       /* ignore */
     }
+    clearDraft();
   }, [result]);
 
   function toggle(a: SavedAgent) {
-    setSelected((prev) => {
-      const next = { ...prev };
-      if (next[a.id]) delete next[a.id];
-      else next[a.id] = a;
-      return next;
-    });
+    toggleDraft(a);
   }
 
   function publish() {
@@ -199,6 +241,7 @@ export default function PortfolioBuilder({ loaderData }: Route.ComponentProps) {
         name,
         tagline,
         creator: address ?? "",
+        visibility,
         members: JSON.stringify(chosen.map((a) => ({ agentId: a.id }))),
       },
       { method: "post" },
@@ -223,8 +266,8 @@ export default function PortfolioBuilder({ loaderData }: Route.ComponentProps) {
         </Link>
         <h1 className="mt-3 text-3xl font-bold">Build a portfolio</h1>
         <p className="mt-2 max-w-[60ch] text-sm text-text-2">
-          Bundle agents you rate into a set others can copy or hire in one flow.
-          Pick from your saved agents below.
+          Bundle agents into a set others can copy or hire in one flow. Tap “＋” on any
+          agent to drop it in, then pick more from your saved and hired agents below.
         </p>
       </div>
 
@@ -235,8 +278,7 @@ export default function PortfolioBuilder({ loaderData }: Route.ComponentProps) {
             Published
           </h2>
           <p className="mt-2 text-sm text-text-2">
-            Your portfolio is live and shareable. Anyone with the link can view,
-            copy, or hire it.
+            Your portfolio is live. Anyone with the link can view, copy, or hire it.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <Link
@@ -286,7 +328,7 @@ export default function PortfolioBuilder({ loaderData }: Route.ComponentProps) {
               </span>
             </h2>
 
-            {/* Search the whole marketplace, or fall back to your saved agents. */}
+            {/* Search the whole marketplace, or fall back to your saved + hired agents. */}
             <div className="relative mt-3">
               <input
                 type="search"
@@ -303,14 +345,15 @@ export default function PortfolioBuilder({ loaderData }: Route.ComponentProps) {
             </div>
             {!query.trim() && (
               <p className="mt-2 text-xs text-text-3">
-                Showing your saved agents. Search above to add any agent from the marketplace.
+                Showing your saved{hiredPool.length > 0 ? " and hired" : ""} agents. Search
+                above to add any agent from the marketplace.
               </p>
             )}
 
             {displayed.length > 0 ? (
               <div className="mt-3 flex flex-col gap-2">
                 {displayed.map((a) => {
-                  const on = Boolean(selected[a.id]);
+                  const on = selectedIds.has(a.id);
                   return (
                     <button
                       key={a.id}
@@ -346,7 +389,7 @@ export default function PortfolioBuilder({ loaderData }: Route.ComponentProps) {
                         )}
                       </span>
                       <span className="tnum shrink-0 text-sm font-semibold text-text-2">
-                        {a.score}
+                        {a.score || ""}
                       </span>
                     </button>
                   );
@@ -361,9 +404,9 @@ export default function PortfolioBuilder({ loaderData }: Route.ComponentProps) {
             ) : (
               <EmptyState
                 className="mt-3 border border-border bg-surface"
-                icon="♥"
-                title="No saved agents yet"
-                hint="Search above to add agents from the marketplace, or save agents (the ♥ on any card) to build from your shortlist."
+                icon="＋"
+                title="Nothing staged yet"
+                hint="Tap the ＋ on any agent to add it here, or search the marketplace above. Saved and hired agents show up automatically."
                 action={
                   <Link
                     to="/"
@@ -408,6 +451,33 @@ export default function PortfolioBuilder({ loaderData }: Route.ComponentProps) {
                     ? "Pick at least two agents to publish."
                     : `${chosen.length} agents · shareable link`}
                 </p>
+
+                {/* Visibility. */}
+                <div className="mt-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-text-3">
+                    Visibility
+                  </div>
+                  <div className="mt-2 inline-flex rounded-[999px] border border-border p-0.5">
+                    {VIS_OPTIONS.map((o) => (
+                      <button
+                        key={o.value}
+                        type="button"
+                        onClick={() => setVisibility(o.value)}
+                        aria-pressed={visibility === o.value}
+                        className={
+                          "min-h-[32px] rounded-[999px] px-3 text-xs font-semibold transition-colors " +
+                          (visibility === o.value ? "bg-brand text-bg" : "text-text-2 hover:text-text")
+                        }
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-text-3">
+                    {VIS_OPTIONS.find((o) => o.value === visibility)?.hint}
+                  </p>
+                </div>
+
                 <button
                   type="button"
                   onClick={publish}
@@ -420,7 +490,8 @@ export default function PortfolioBuilder({ loaderData }: Route.ComponentProps) {
                 {!address && (
                   <div className="mt-4">
                     <p className="mb-2 text-center text-xs text-text-3">
-                      Connect a wallet to be credited as the creator (optional).
+                      Connect a wallet to be credited as the creator and to build from your
+                      hired agents (optional).
                     </p>
                     <div className="flex justify-center">
                       <WalletButton />

@@ -14,25 +14,47 @@ import { coverStyle } from "../lib/cover";
 import { scoreTone } from "../lib/score";
 
 export function meta({ loaderData }: Route.MetaArgs) {
-  return [{ title: `${loaderData?.portfolio?.name ?? "Portfolio"} — Agent-Street` }];
+  const name = loaderData?.portfolio?.name ?? "Portfolio";
+  const tagline = loaderData?.portfolio?.tagline ?? "A set of ERC-8004 agents on BNB Chain.";
+  const image = loaderData?.ogImage;
+  const tags: Array<Record<string, string>> = [
+    { title: `${name} — Agent-Street` },
+    { name: "description", content: tagline },
+    { property: "og:title", content: name },
+    { property: "og:description", content: tagline },
+    { name: "twitter:title", content: name },
+    { name: "twitter:description", content: tagline },
+  ];
+  if (image) {
+    tags.push(
+      { property: "og:image", content: image },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:image", content: image },
+    );
+  }
+  return tags;
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ params, request }: Route.LoaderArgs) {
   const agents = createAgentsClient({ baseUrl: env.PROXY_8004_URL, fetcher: env.PROXY_8004 });
+  const origin = new URL(request.url).origin;
+  const ogImage = `${origin}/portfolio/${encodeURIComponent(params.slug)}/og`;
 
   // Curated recipe first (app-side, always available); else a user portfolio
-  // from the portfolios worker (worker degrades → honest 404).
+  // from the portfolios worker (worker degrades → real 404).
   const recipe = getRecipe(params.slug);
   if (recipe) {
     const portfolio = await resolveRecipe(recipe, agents);
-    return { portfolio, portfoliosUrl: env.PORTFOLIOS_URL };
+    return { portfolio, portfoliosUrl: env.PORTFOLIOS_URL, ogImage };
   }
 
   const client = createPortfoliosClient({ baseUrl: env.PORTFOLIOS_URL, fetcher: env.PORTFOLIOS });
   const userPf = await client.get(params.slug);
   if (!userPf) throw new Response("Not found", { status: 404 });
   const portfolio = await resolveUserPortfolio(userPf, agents);
-  return { portfolio, portfoliosUrl: env.PORTFOLIOS_URL };
+  return { portfolio, portfoliosUrl: env.PORTFOLIOS_URL, ogImage };
 }
 
 const KPI_TONE: Record<"up" | "brand" | "down", "up" | "down" | "neutral"> = {
@@ -113,7 +135,7 @@ export default function PortfolioDetail({ loaderData }: Route.ComponentProps) {
         </div>
       </section>
 
-      {/* Honest aggregate KPIs — real 8004scan fields only, no invented ROI. */}
+      {/* Aggregate KPIs — real 8004scan fields only, no invented ROI. */}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <KpiTile label="Agents" value={aggregate.count} />
         <KpiTile
@@ -143,7 +165,7 @@ export default function PortfolioDetail({ loaderData }: Route.ComponentProps) {
           ))}
         </div>
 
-        {/* Honest gaps: slots with no live agent yet. */}
+        {/* Gaps: slots with no live agent yet. */}
         {missing.length > 0 && (
           <p className="mt-4 rounded-lg border border-border bg-surface p-4 text-xs text-text-3">
             No live agent yet for:{" "}

@@ -25,12 +25,53 @@ export interface Env {
   ALLOWED_ORIGIN: string;
   // RPC público BSC mainnet (balances, eth_blockNumber). Keyless.
   BSC_RPC_URL: string;
+  // RPC público BSC testnet (chain 97). Keyless. El agente insignia opera en ambas
+  // cadenas, así que el feed de trades se resuelve por cadena (ver chainCfg).
+  BSC_TESTNET_RPC_URL?: string;
   // Secret: `wrangler secret put NODEREAL_API_KEY`. Habilita el feed de trades vía
   // NodeReal/MegaNode (nr_getAssetTransfers). Sin key → /v1/trades vacío honesto.
   NODEREAL_API_KEY?: string;
 }
 
-const CHAIN_ID = 56; // BSC mainnet.
+// Cadenas BSC soportadas. La wallet del agente puede estar activa en mainnet Y
+// testnet a la vez; cada lectura onchain se resuelve contra UNA de estas.
+type ChainId = 56 | 97;
+const DEFAULT_CHAIN: ChainId = 56;
+
+interface ChainCfg {
+  chainId: ChainId;
+  rpcUrl: string;
+  /** Host NodeReal para nr_getAssetTransfers (feed de trades). */
+  nodeRealHost: string;
+  /** Base del explorer (sin barra final) para construir los links de tx. */
+  explorer: string;
+  /** PancakeSwap v3 NonfungiblePositionManager en esta cadena (identifica LP mints). */
+  pancakeV3Npm: string;
+}
+
+function chainCfg(env: Env, chain: ChainId): ChainCfg {
+  if (chain === 97) {
+    return {
+      chainId: 97,
+      rpcUrl: env.BSC_TESTNET_RPC_URL || "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
+      nodeRealHost: "bsc-testnet.nodereal.io",
+      explorer: "https://testnet.bscscan.com",
+      pancakeV3Npm: "0x427bf5b37357632377ecbec9de3626c71a5396c1",
+    };
+  }
+  return {
+    chainId: 56,
+    rpcUrl: env.BSC_RPC_URL,
+    nodeRealHost: "bsc-mainnet.nodereal.io",
+    explorer: "https://bscscan.com",
+    pancakeV3Npm: "0x46a15b0b27311cedf172ab29e4f4766fbe7f4364",
+  };
+}
+
+/** Lee `?chain=` de la URL; 97 → testnet, cualquier otra cosa → mainnet (56). */
+function parseChain(url: URL): ChainId {
+  return url.searchParams.get("chain") === "97" ? 97 : DEFAULT_CHAIN;
+}
 
 // --- Formas del contrato (espejo de app/app/lib/contracts.ts) ---
 interface Holding {
@@ -51,7 +92,9 @@ interface PortfolioResponse {
   updatedAt: string;
   source: "onchain";
 }
-type TradeSide = "buy" | "sell" | "swap";
+// "add"/"remove" = liquidez v3 (mint / burn de una posición Pancake v3): la wallet
+// manda tokens y recibe/quema un NFT de posición ERC-721 (no es un swap ERC-20↔ERC-20).
+type TradeSide = "buy" | "sell" | "swap" | "add" | "remove";
 interface Trade {
   hash: string;
   ts: string;
@@ -63,6 +106,8 @@ interface Trade {
   valueUsd: number | null;
   dex: string | null;
   explorerUrl: string;
+  /** Cadena de la tx (56 mainnet · 97 testnet); el agente opera en ambas. */
+  chainId: number;
 }
 interface TradesResponse {
   address: string;
@@ -338,7 +383,7 @@ async function getPortfolio(env: Env, address: string): Promise<PortfolioRespons
 
   const out: PortfolioResponse = {
     address: addr,
-    chainId: CHAIN_ID,
+    chainId: DEFAULT_CHAIN,
     totalUsd,
     fullyPriced,
     holdings,
@@ -411,7 +456,7 @@ async function handleSummary(request: Request, env: Env): Promise<Response> {
     ? (body.addresses as unknown[]).map(String).slice(0, SUMMARY_MAX_ADDRS)
     : [];
   const summaries = await getSummaries(env, addresses);
-  return json({ summaries, chainId: CHAIN_ID, updatedAt: new Date().toISOString() }, env, 200);
+  return json({ summaries, chainId: DEFAULT_CHAIN, updatedAt: new Date().toISOString() }, env, 200);
 }
 
 // ------------------------------------------------------------------ //
@@ -421,17 +466,6 @@ async function handleSummary(request: Request, env: Env): Promise<Response> {
 const STABLE_OR_BASE = new Set([
   "USDT", "USDC", "BUSD", "FDUSD", "DAI", "TUSD", "WBNB", "BNB",
 ]);
-
-interface TokenTx {
-  hash: string;
-  timeStamp: string;
-  from: string;
-  to: string;
-  value: string;
-  tokenSymbol: string;
-  tokenDecimal: string;
-  contractAddress: string;
-}
 
 /** Un item de nr_getAssetTransfers (NodeReal/MegaNode, estilo Alchemy). */
 interface NrTransfer {
@@ -443,7 +477,8 @@ interface NrTransfer {
   contractAddress: string | null;
   decimal: string | null; // hex (ej. "0x12" = 18)
   blockTimeStamp: number; // unix segundos
-  category: string;
+  category: string; // "20" (ERC-20) | "721" (NFT de posición v3) | ...
+  erc721TokenId?: string | null; // hex, solo para category "721"
 }
 
 /** POST JSON-RPC (single o batch) al endpoint NodeReal; devuelve los `result`. */
@@ -470,19 +505,22 @@ async function nodeRealRpc(
 }
 
 /**
- * nr_getAssetTransfers en BSC vía NodeReal. Filtra por UNA dirección, así que
- * lanzamos dos llamadas en un batch JSON-RPC (fromAddress + toAddress) y mergeamos
- * sus `transfers` para tener ambas piernas del swap. Solo ERC-20 (category "20"),
- * misma semántica que el antiguo tokentx. Sin key → []. TTL del cache lo aporta getTrades.
+ * nr_getAssetTransfers vía NodeReal, resuelto contra la cadena `cfg`. Filtra por UNA
+ * dirección, así que lanzamos dos llamadas en un batch JSON-RPC (fromAddress +
+ * toAddress) y mergeamos sus `transfers` para tener ambas piernas. Pedimos ERC-20
+ * ("20") Y ERC-721 ("721"): un swap es ERC-20↔ERC-20, pero un mint/burn de liquidez
+ * v3 manda tokens y recibe/quema un NFT de posición — sin el "721" ese mint es
+ * invisible (era el bug: el feed descartaba toda operación de liquidez). Sin key → [].
  *
  * Nota: NodeReal exige `toBlock` numérico (no acepta "latest") y `fromBlock < toBlock`;
  * el método topa a 100k bloques por rango. Anclamos a los ~90k bloques más recientes
  * (~3-4 días en BSC) leyendo el head del PROPIO NodeReal (misma altura que los transfers).
+ * `excludeZeroValue:false` porque las transferencias ERC-721 no llevan `value`.
  */
-async function fetchAssetTransfers(env: Env, addr: string): Promise<NrTransfer[]> {
+async function fetchAssetTransfers(env: Env, addr: string, cfg: ChainCfg): Promise<NrTransfer[]> {
   const key = env.NODEREAL_API_KEY;
   if (!key) return [];
-  const endpoint = `https://bsc-mainnet.nodereal.io/v1/${key}`;
+  const endpoint = `https://${cfg.nodeRealHost}/v1/${key}`;
 
   const [headHex] = await nodeRealRpc(endpoint, [{ method: "eth_blockNumber", params: [] }]);
   const latest = hexToBigInt(headHex);
@@ -491,10 +529,10 @@ async function fetchAssetTransfers(env: Env, addr: string): Promise<NrTransfer[]
   const fromBlock = "0x" + (latest > 90000n ? latest - 90000n : 0n).toString(16);
 
   const base = {
-    category: ["20"],
+    category: ["20", "721"],
     order: "desc",
     maxCount: "0x64", // 100 por pierna; el front muestra ≤20, cap a 50.
-    excludeZeroValue: true,
+    excludeZeroValue: false,
     fromBlock,
     toBlock,
   };
@@ -510,15 +548,25 @@ async function fetchAssetTransfers(env: Env, addr: string): Promise<NrTransfer[]
   return merged;
 }
 
-async function getTrades(env: Env, address: string): Promise<TradesResponse> {
+/** Símbolos únicos (en orden) de un conjunto de piernas ERC-20 → "WBNB+USDT". */
+function legSymbols(legs: NrTransfer[]): string {
+  const seen: string[] = [];
+  for (const l of legs) {
+    const s = (l.asset || "?").toUpperCase();
+    if (!seen.includes(s)) seen.push(s);
+  }
+  return seen.join("+") || "?";
+}
+
+async function getTrades(env: Env, address: string, cfg: ChainCfg): Promise<TradesResponse> {
   const addr = address.toLowerCase();
-  const cacheKey = `trades:v1:${addr}`;
+  const cacheKey = `trades:v2:${cfg.chainId}:${addr}`;
   const cached = await env.INDEXER_KV.get(cacheKey, "json");
   if (cached) return cached as TradesResponse;
 
   const empty: TradesResponse = {
     address: addr,
-    chainId: CHAIN_ID,
+    chainId: cfg.chainId,
     count: 0,
     trades: [],
     updatedAt: new Date().toISOString(),
@@ -529,66 +577,108 @@ async function getTrades(env: Env, address: string): Promise<TradesResponse> {
   // sigue vivo para balances/summary, que son keyless). No cacheamos el vacío.
   if (!env.NODEREAL_API_KEY) return empty;
 
-  let rows: TokenTx[] = [];
+  let transfers: NrTransfer[] = [];
   try {
-    const transfers = await fetchAssetTransfers(env, addr);
-    rows = transfers.map((t) => ({
-      hash: t.hash,
-      timeStamp: String(t.blockTimeStamp ?? 0),
-      from: t.from,
-      to: t.to,
-      value: t.value, // hex; BigInt() lo parsea abajo
-      tokenSymbol: t.asset ?? "?",
-      tokenDecimal: t.decimal ?? "18", // hex "0x12"; Number() lo parsea
-      contractAddress: t.contractAddress ?? "",
-    }));
+    transfers = await fetchAssetTransfers(env, addr, cfg);
   } catch {
-    // Estado vacío honesto (200) si NodeReal falla.
-  }
-
-  if (rows.length === 0) {
-    // No cacheamos el vacío para reintentar pronto una vez haya key/disponibilidad.
+    // Estado vacío honesto (200) si NodeReal falla. No lo cacheamos.
     return empty;
   }
+  if (transfers.length === 0) return empty;
 
-  // Agrupar transferencias por hash: una tx de swap tiene salida (from=wallet) y
-  // entrada (to=wallet). Derivar side/tokenIn/tokenOut/amount de esas dos ramas.
-  const byHash = new Map<string, TokenTx[]>();
-  for (const r of rows) {
-    if (!byHash.has(r.hash)) byHash.set(r.hash, []);
-    byHash.get(r.hash)!.push(r);
+  // Agrupar transferencias por hash. De cada tx derivamos su naturaleza:
+  //  • swap        — una pierna ERC-20 sale y otra ERC-20 (distinta) entra.
+  //  • add (LP)    — salen tokens ERC-20 y entra un NFT de posición (mint v3).
+  //  • remove (LP) — sale/quema el NFT de posición y regresan tokens ERC-20 (burn v3).
+  const byHash = new Map<string, NrTransfer[]>();
+  for (const t of transfers) {
+    if (!byHash.has(t.hash)) byHash.set(t.hash, []);
+    byHash.get(t.hash)!.push(t);
   }
 
   const trades: Trade[] = [];
   for (const [hash, legs] of byHash) {
-    const outLeg = legs.find((l) => l.from.toLowerCase() === addr); // token que sale
-    const inLeg = legs.find((l) => l.to.toLowerCase() === addr); // token que entra
-    if (!outLeg || !inLeg) continue; // sin par → no es swap identificable
-    if (outLeg.contractAddress.toLowerCase() === inLeg.contractAddress.toLowerCase())
+    const erc20 = legs.filter((l) => l.category === "20");
+    const nft = legs.filter((l) => l.category === "721");
+    const out20 = erc20.filter((l) => l.from.toLowerCase() === addr); // ERC-20 que sale
+    const in20 = erc20.filter((l) => l.to.toLowerCase() === addr); // ERC-20 que entra
+    const nftIn = nft.find((l) => l.to.toLowerCase() === addr); // NFT recibido (mint)
+    const nftOut = nft.find((l) => l.from.toLowerCase() === addr); // NFT enviado/quemado (burn)
+
+    const ts = new Date(Number(legs[0]?.blockTimeStamp ?? 0) * 1000).toISOString();
+    const explorerUrl = `${cfg.explorer}/tx/${hash}`;
+
+    // Caso A — swap ERC-20↔ERC-20 (tokens distintos).
+    const outLeg = out20[0];
+    const inLeg = in20[0];
+    if (
+      outLeg &&
+      inLeg &&
+      (outLeg.contractAddress ?? "").toLowerCase() !== (inLeg.contractAddress ?? "").toLowerCase()
+    ) {
+      const tokenIn = outLeg.asset || "?";
+      const tokenOut = inLeg.asset || "?";
+      let side: TradeSide = "swap";
+      if (STABLE_OR_BASE.has(tokenIn.toUpperCase())) side = "buy";
+      else if (STABLE_OR_BASE.has(tokenOut.toUpperCase())) side = "sell";
+      trades.push({
+        hash,
+        ts,
+        side,
+        tokenIn,
+        tokenOut,
+        amountIn: scaleDown(hexToBigIntFromDec(outLeg.value), Number(outLeg.decimal || "18") || 18),
+        amountOut: scaleDown(hexToBigIntFromDec(inLeg.value), Number(inLeg.decimal || "18") || 18),
+        valueUsd: null, // no inventamos precio histórico
+        dex: null,
+        explorerUrl,
+        chainId: cfg.chainId,
+      });
       continue;
+    }
 
-    const amountIn = scaleDown(hexToBigIntFromDec(outLeg.value), Number(outLeg.tokenDecimal) || 18);
-    const amountOut = scaleDown(hexToBigIntFromDec(inLeg.value), Number(inLeg.tokenDecimal) || 18);
-    const tokenIn = outLeg.tokenSymbol || "?";
-    const tokenOut = inLeg.tokenSymbol || "?";
+    const isPancakeV3 = (l?: NrTransfer) =>
+      !!l && (l.contractAddress ?? "").toLowerCase() === cfg.pancakeV3Npm;
 
-    // side: gastar stable/base → "buy"; recibir stable/base → "sell"; si no, "swap".
-    let side: TradeSide = "swap";
-    if (STABLE_OR_BASE.has(tokenIn.toUpperCase())) side = "buy";
-    else if (STABLE_OR_BASE.has(tokenOut.toUpperCase())) side = "sell";
+    // Caso B — add liquidity: salen tokens y entra el NFT de posición Pancake v3.
+    // Exigimos que el NFT sea del PositionManager v3 para no confundir otros NFTs
+    // (p. ej. el NFT de identidad ERC-8004) con una operación de liquidez.
+    if (isPancakeV3(nftIn) && out20.length > 0) {
+      trades.push({
+        hash,
+        ts,
+        side: "add",
+        tokenIn: legSymbols(out20),
+        tokenOut: "v3 LP",
+        amountIn: 0, // dos tokens de distinta escala; el detalle vive en tokenIn
+        amountOut: 0,
+        valueUsd: null,
+        dex: "PancakeSwap v3",
+        explorerUrl,
+        chainId: cfg.chainId,
+      });
+      continue;
+    }
 
-    trades.push({
-      hash,
-      ts: new Date(Number(outLeg.timeStamp) * 1000).toISOString(),
-      side,
-      tokenIn,
-      tokenOut,
-      amountIn,
-      amountOut,
-      valueUsd: null, // el front/derivador estima valor; aquí no inventamos precio histórico
-      dex: null,
-      explorerUrl: `https://bscscan.com/tx/${hash}`,
-    });
+    // Caso C — remove liquidity: se envía/quema el NFT de posición Pancake v3.
+    if (isPancakeV3(nftOut)) {
+      trades.push({
+        hash,
+        ts,
+        side: "remove",
+        tokenIn: "v3 LP",
+        tokenOut: in20.length > 0 ? legSymbols(in20) : "—",
+        amountIn: 0,
+        amountOut: 0,
+        valueUsd: null,
+        dex: "PancakeSwap v3",
+        explorerUrl,
+        chainId: cfg.chainId,
+      });
+      continue;
+    }
+    // Resto (transferencias sueltas, spam entrante, mint de identidad ERC-8004,
+    // collects sin movimiento del NFT) → se omiten (feed real, sin ruido).
   }
 
   trades.sort((a, b) => (a.ts < b.ts ? 1 : -1));
@@ -596,7 +686,7 @@ async function getTrades(env: Env, address: string): Promise<TradesResponse> {
 
   const out: TradesResponse = {
     address: addr,
-    chainId: CHAIN_ID,
+    chainId: cfg.chainId,
     count: capped.length,
     trades: capped,
     updatedAt: new Date().toISOString(),
@@ -671,7 +761,9 @@ export default {
         if (!ADDR_RE.test(address)) {
           return json({ error: "invalid_address" }, env, 400);
         }
-        const result = await getTrades(env, address);
+        // El agente puede operar en mainnet Y testnet: la cadena se elige por
+        // `?chain=` (56 por defecto · 97 testnet). El front pide ambas y mergea.
+        const result = await getTrades(env, address, chainCfg(env, parseChain(url)));
         return json(result, env, 200, TRADES_CACHE_SEC);
       }
 
